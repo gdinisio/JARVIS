@@ -1,0 +1,38 @@
+appId: com.jarvis.assistant
+productName: JARVIS
+copyright: JARVIS — Just A Really Very Intelligent System
+directories:
+  buildResources: resources
+  output: release
+files:
+  - out/**
+  - package.json
+  - '!**/{.eslintrc,.editorconfig,.prettierrc,tsconfig*.json,electron.vite.config.ts,vitest.config.ts}'
+  - '!tests/**'
+  - '!src/**'
+asarUnpack:
+  - resources/**
+win:
+  target:
+    - target: nsis
+      arch: [x64, arm64]
+  artifactName: JARVIS-${version}-${arch}-setup.${ext}
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+mac:
+  category: public.app-category.productivity
+  target:
+    - target: dmg
+      arch: [x64, arm64]
+  artifactName: JARVIS-${version}-${arch}.${ext}
+  extendInfo:
+    NSMicrophoneUsageDescription: JARVIS uses the microphone for voice commands. It only listens when you activate it.
+    NSAppleEventsUsageDescription: JARVIS uses Apple Events to open and control applications on your behalf.
+    NSScreenCaptureUsageDescription: JARVIS captures the screen only when you explicitly ask it to look at your screen.
+linux:
+  target: [AppImage]
+  category: Utility
+  artifactName: JARVIS-${version}-${arch}.${ext}
