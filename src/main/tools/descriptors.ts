@@ -204,6 +204,11 @@ export function isToolName(value: string): value is ToolName {
   return TOOL_BY_NAME.has(value)
 }
 
+/** Schema lookup by name, for callers that only have a string. */
+export function schemaFor(name: string): z.ZodType | undefined {
+  return (toolSchemas as Record<string, z.ZodType>)[name]
+}
+
 export function riskOf(name: string): RiskLevel {
   return TOOL_BY_NAME.get(name)?.risk ?? 'high'
 }

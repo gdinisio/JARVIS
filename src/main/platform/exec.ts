@@ -60,6 +60,11 @@ export function run(file: string, args: string[] = [], options: ExecOptions = {}
     }
 
     if (options.detached) {
+      // The caller is not waiting, but the failure still arrives asynchronously.
+      // Without this listener an ENOENT would surface as an uncaught exception.
+      child.on('error', (error) => {
+        logger.warn('exec', 'Detached process could not be started.', { file, error: error.message })
+      })
       child.unref()
       resolve({ code: 0, stdout: '', stderr: '', timedOut: false, durationMs: Date.now() - started })
       return

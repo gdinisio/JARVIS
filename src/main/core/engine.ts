@@ -1,6 +1,6 @@
 import type {
   ChatMessage, ConfirmRequest, HistoryEntry, HistoryOutcome, PlanStep, ProviderId,
-  SubmitRequest, TaskPlan, ToolDescriptor, ToolName, ToolResult
+  SubmitRequest, TaskPlan, ToolDescriptor, ToolResult
 } from '@shared/types'
 import type { AiMessage, AiResponse } from './ai/types'
 import { ProviderError } from './ai/types'
@@ -29,7 +29,7 @@ import { id, now } from '../util/id'
  * the first real tool runs.
  */
 const PLAN_TOOL: ToolDescriptor = {
-  name: 'present_plan' as ToolName,
+  name: 'present_plan',
   description:
     'Show the user the steps you are about to take, before taking them. Use this whenever a request needs more than two actions, or any action that changes files, settings or power state. Call it once, then carry out the steps.',
   risk: 'low',
@@ -109,7 +109,6 @@ export class Engine {
 
     if (isInterrupt(text)) {
       this.cancel('Stopped.')
-      bus.emit({ type: 'stop-speaking' })
       return
     }
 
@@ -302,7 +301,9 @@ export class Engine {
   ): Promise<AiResponse> {
     const request = {
       system: this.systemPrompt(primary),
-      messages: this.conversation,
+      // A snapshot: the loop keeps appending to `conversation`, and a provider
+      // must never see it change underneath an in-flight request.
+      messages: [...this.conversation],
       tools,
       temperature: config.ai.temperature,
       maxTokens: config.ai.maxTokens,

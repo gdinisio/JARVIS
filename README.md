@@ -111,7 +111,7 @@ src/
   preload/                 the only bridge; a fixed list of channels
   renderer/                interface — never sees a key, never touches the OS
   shared/                  types, defaults and IPC names used by both sides
-tests/                     154 tests, security paths first
+tests/                     172 tests, security paths first
 ```
 
 ---

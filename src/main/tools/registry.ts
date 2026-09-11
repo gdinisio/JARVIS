@@ -1,5 +1,5 @@
 import type { ToolResult } from '@shared/types'
-import { TOOL_BY_NAME, toolSchemas } from './descriptors'
+import { TOOL_BY_NAME, schemaFor } from './descriptors'
 import type { ToolContext, ToolHandler } from './context'
 import { fail, blocked } from './context'
 import { logger } from '../services/logging'
@@ -68,7 +68,9 @@ export async function executeTool(name: string, rawArgs: unknown, ctx: ToolConte
     return blocked(`"${name}" is not a tool I can run.`)
   }
 
-  const schema = toolSchemas[descriptor.name]
+  const schema = schemaFor(descriptor.name)
+  if (!schema) return blocked(`"${name}" cannot be called directly.`)
+
   const parsed = schema.safeParse(rawArgs ?? {})
   if (!parsed.success) {
     const issue = parsed.error.issues[0]

@@ -82,6 +82,12 @@ export class LinuxAdapter implements PlatformAdapter {
       }
       throw new Error(`No launch command found for ${app.name}.`)
     }
+
+    // A detached spawn reports success the moment it is handed to the OS, so
+    // check the program exists first rather than claiming to have opened
+    // something that is not installed.
+    const located = await run('which', [app.target], { timeoutMs: 5000 })
+    if (located.code !== 0) throw new Error(`${app.name} is not installed on this computer.`)
     await run(app.target, [], { detached: true })
   }
 

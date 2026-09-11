@@ -103,8 +103,15 @@ export type ToolName =
   | 'list_routines'
   | 'delete_routine'
 
+/**
+ * Tools that are offered to the model but never touch the operating system.
+ * `present_plan` only declares intent, so the engine handles it directly.
+ */
+export type MetaToolName = 'present_plan'
+export type AnyToolName = ToolName | MetaToolName
+
 export interface ToolDescriptor {
-  name: ToolName
+  name: AnyToolName
   description: string
   risk: RiskLevel
   /** Grouping used by the permissions UI. */
