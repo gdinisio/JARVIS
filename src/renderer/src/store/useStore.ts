@@ -58,6 +58,7 @@ interface JarvisState {
   setVoiceError: (error: string | null) => void
   setTranscribing: (value: boolean) => void
   dismissNotification: (id: string) => void
+  setHistory: (history: HistoryEntry[]) => void
   clearSpeakRequest: () => void
   pushLocalConsole: (entry: ConsoleEntry) => void
 }
@@ -214,6 +215,7 @@ export const useStore = create<JarvisState>((set, get) => ({
   setVoiceError: (voiceError) => set({ voiceError }),
   setTranscribing: (transcribing) => set({ transcribing }),
   dismissNotification: (id) => set((state) => ({ notifications: state.notifications.filter((n) => n.id !== id) })),
+  setHistory: (history) => set({ history }),
   clearSpeakRequest: () => set({ speakRequest: null }),
   pushLocalConsole: (entry) => set((state) => ({ consoleEntries: [...state.consoleEntries, entry].slice(-MAX_CONSOLE) }))
 }))

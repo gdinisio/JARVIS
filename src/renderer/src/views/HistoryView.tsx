@@ -13,6 +13,7 @@ const OUTCOME_LABEL: Record<string, string> = {
 /** Everything JARVIS has been asked to do, and what came of it. */
 export function HistoryView(): JSX.Element {
   const history = useStore((s) => s.history)
+  const setHistory = useStore((s) => s.setHistory)
   const [filter, setFilter] = useState('')
   const [outcome, setOutcome] = useState<'all' | 'success' | 'failed' | 'blocked' | 'cancelled'>('all')
 
@@ -51,7 +52,9 @@ export function HistoryView(): JSX.Element {
             className="btn danger"
             disabled={!history.length}
             onClick={() => {
-              if (confirm('Clear the entire command history?')) void window.jarvis.clearHistory().then(() => location.reload())
+              if (confirm('Clear the entire command history?')) {
+                void window.jarvis.clearHistory().then(() => setHistory([]))
+              }
             }}
           >
             Clear
