@@ -147,6 +147,30 @@ dangerous URL schemes are refused, checks that the confirmation gate appears and
 that approving it actually performs the action, and writes a screenshot of every
 screen to `screenshots/`.
 
+### If `npm run dev` says `Error: Electron uninstall`
+
+`npm install` downloads the Electron binary from a postinstall script, which is
+skipped when `ignore-scripts` is set and can fail quietly behind a proxy or
+corporate firewall. electron-vite then reports the missing binary with that
+rather unhelpful message.
+
+Every `dev`, `start` and `build` run now checks for the binary first and fetches
+it if it is missing, so this should repair itself. To do it by hand:
+
+```bash
+node node_modules/electron/install.js
+```
+
+If the download itself is being blocked:
+
+```bash
+npm config set proxy http://your-proxy:port          # behind a proxy
+npm config set https-proxy http://your-proxy:port
+
+set ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/   # or use a mirror
+node node_modules/electron/install.js
+```
+
 **No keys?** JARVIS still runs. It falls back to offline command matching for
 direct instructions ("open Chrome", "what's my CPU usage", "create a folder
 called Projects"), and Demo Mode shows the entire interface with nothing
