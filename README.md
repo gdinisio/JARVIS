@@ -161,13 +161,30 @@ it if it is missing, so this should repair itself. To do it by hand:
 node node_modules/electron/install.js
 ```
 
-If the download itself is being blocked:
+Two different things cause it, and they need opposite fixes. The guard now
+tells them apart and prints the matching advice.
+
+**`Access is denied` / `os error 5` / `EPERM` — Windows refused the write.**
+Usually Defender's Controlled Folder Access (which protects Documents, Desktop
+and Pictures by default), OneDrive syncing the folder, or a stale `electron.exe`
+holding a lock:
+
+```powershell
+taskkill /f /im electron.exe
+Remove-Item -Recurse -Force node_modules\electron\dist
+node node_modules\electron\install.js
+```
+
+If that does not do it, keep the project somewhere Windows neither protects nor
+syncs — `C:\dev\JARVIS` rather than `C:\Users\you\Documents\JARVIS`.
+
+**`ENOTFOUND` / `ETIMEDOUT` / certificate errors — the download was blocked.**
 
 ```bash
-npm config set proxy http://your-proxy:port          # behind a proxy
+npm config set proxy http://your-proxy:port
 npm config set https-proxy http://your-proxy:port
 
-set ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/   # or use a mirror
+set ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/
 node node_modules/electron/install.js
 ```
 
