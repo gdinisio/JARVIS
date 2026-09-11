@@ -27,6 +27,18 @@ import { speakNative, stopNativeSpeech } from '../services/speech'
  * Every channel is explicit and validated here; the renderer has no other way
  * to reach the main process, and never receives an API key.
  */
+/** Windows and macOS support login items; elsewhere this is a no-op. */
+export function applyLoginItem(config = settings.get()): void {
+  if (process.platform !== 'win32' && process.platform !== 'darwin') return
+  try {
+    // "Start minimised" is honoured by the window itself, so openAtLogin is
+    // the only flag the OS needs from us.
+    app.setLoginItemSettings({ openAtLogin: config.general.launchOnStartup })
+  } catch (error) {
+    logger.warn('ipc', 'Launch at login could not be configured.', { error: String(error) })
+  }
+}
+
 export function registerIpc(): void {
   const handle = <T>(channel: string, handler: (payload: T, event: Electron.IpcMainInvokeEvent) => unknown) => {
     ipcMain.handle(channel, async (event, payload: T) => {
@@ -84,6 +96,13 @@ export function registerIpc(): void {
       }
     }
     if (JSON.stringify(before.appearance) !== JSON.stringify(next.appearance)) applyWindowAppearance()
+
+    if (
+      before.general.launchOnStartup !== next.general.launchOnStartup ||
+      before.general.startMinimised !== next.general.startMinimised
+    ) {
+      applyLoginItem(next)
+    }
     refreshTrayMenu()
     providers.broadcast()
     return { ok: true, settings: next }

@@ -11,6 +11,8 @@ Windows 11 · macOS · Linux
 
 </div>
 
+<img src="docs/images/command.png" alt="The JARVIS command screen: system HUD, the core, and a live activity console" width="100%">
+
 ---
 
 ## What it is
@@ -33,6 +35,13 @@ what happened.
 It never executes model-generated code. The model can only propose a call to one
 of the tools listed in [Tools](#tools); a security layer validates the arguments
 and decides whether it runs, needs confirmation, or is refused.
+
+<table>
+<tr>
+<td width="50%"><img src="docs/images/boot.png" alt="Startup sequence reporting real subsystem state" width="100%"><br><sub><b>Startup</b> — diagnostics report what is actually true; no key means <code>NO KEY</code>, not <code>READY</code>.</sub></td>
+<td width="50%"><img src="docs/images/confirmation.png" alt="Confirmation dialog naming exactly what will happen" width="100%"><br><sub><b>The gate</b> — nothing consequential happens without this, and Cancel holds focus.</sub></td>
+</tr>
+</table>
 
 ---
 
@@ -102,7 +111,7 @@ src/
   preload/                 the only bridge; a fixed list of channels
   renderer/                interface — never sees a key, never touches the OS
   shared/                  types, defaults and IPC names used by both sides
-tests/                     150 tests, security paths first
+tests/                     154 tests, security paths first
 ```
 
 ---
@@ -222,6 +231,8 @@ so you can see the plan — and approve it — before the first real action runs
 
 Every tool can be set to **always allow**, **always confirm** or **never** in
 Settings → Permissions.
+
+<img src="docs/images/permissions.png" alt="Per-tool permission policy in Settings" width="100%">
 
 ---
 

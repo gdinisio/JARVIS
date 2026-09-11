@@ -1075,6 +1075,7 @@
 .boot-row-label { color: var(--text-faint); }
 .boot-row-rule { flex: 1; height: 1px; background: linear-gradient(90deg, var(--hairline), transparent); }
 .boot-row-value { color: var(--accent-bright); }
+.boot-row.degraded .boot-row-value { color: var(--amber); }
 
 .boot-title {
   position: absolute;

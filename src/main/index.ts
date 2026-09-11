@@ -13,7 +13,7 @@ import { bus } from './services/bus'
 import { monitoring } from './services/monitoring'
 import { proactive } from './services/proactive'
 import { providers } from './core/ai'
-import { registerIpc } from './ipc'
+import { registerIpc, applyLoginItem } from './ipc'
 import { createMainWindow, configurePermissions, showWindow, markQuitting, getWindow } from './windows/mainWindow'
 import { createTray, refreshTrayMenu, destroyTray } from './windows/tray'
 import { registerHotkeys, unregisterHotkeys } from './windows/hotkeys'
@@ -45,6 +45,7 @@ function bootstrap(): void {
 
     configurePermissions()
     registerIpc()
+    applyLoginItem()
 
     const window = createMainWindow()
     // Every window subscribes to the same event stream.

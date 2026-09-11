@@ -16,15 +16,9 @@ interface Subsystem {
   label: string
   value: string
   at: number
+  /** False when the subsystem is not actually available. */
+  ok: boolean
 }
-
-const SUBSYSTEMS: Subsystem[] = [
-  { label: 'SYSTEM', value: 'ONLINE', at: 900 },
-  { label: 'AI ENGINE', value: 'READY', at: 1250 },
-  { label: 'VOICE', value: 'READY', at: 1560 },
-  { label: 'AUTOMATION', value: 'READY', at: 1850 },
-  { label: 'NETWORK', value: 'CONNECTED', at: 2120 }
-]
 
 const TOTAL_MS = 3050
 
@@ -86,7 +80,29 @@ export function Boot(): JSX.Element | null {
     }
   }, [elapsed, enabled, settings])
 
-  const visible = useMemo(() => SUBSYSTEMS.filter((s) => elapsed >= s.at), [elapsed])
+  /*
+   * The diagnostics report what is actually true of this installation. A boot
+   * sequence that always says READY would be set dressing.
+   */
+  const subsystems = useMemo<Subsystem[]>(() => {
+    const engineReady = !!(provider?.claude.configured || provider?.groq.configured)
+    const voiceReady = settings?.voice.enabled !== false && settings?.voice.engine !== 'off'
+    const network = provider?.online !== false
+    return [
+      { label: 'SYSTEM', value: 'ONLINE', at: 900, ok: true },
+      {
+        label: 'AI ENGINE',
+        value: provider?.demo ? 'DEMO' : engineReady ? 'READY' : 'NO KEY',
+        at: 1250,
+        ok: engineReady || !!provider?.demo
+      },
+      { label: 'VOICE', value: voiceReady ? 'READY' : 'MUTED', at: 1560, ok: voiceReady },
+      { label: 'AUTOMATION', value: 'READY', at: 1850, ok: true },
+      { label: 'NETWORK', value: network ? 'CONNECTED' : 'OFFLINE', at: 2120, ok: network }
+    ]
+  }, [provider, settings])
+
+  const visible = useMemo(() => subsystems.filter((item) => elapsed >= item.at), [subsystems, elapsed])
 
   if (booted || !enabled) return null
 
@@ -115,7 +131,7 @@ export function Boot(): JSX.Element | null {
 
       <div className="boot-readout">
         {visible.map((subsystem) => (
-          <div className="boot-row" key={subsystem.label}>
+          <div className={`boot-row ${subsystem.ok ? '' : 'degraded'}`} key={subsystem.label}>
             <span className="boot-row-label">{subsystem.label}</span>
             <span className="boot-row-rule" />
             <span className="boot-row-value">{subsystem.value}</span>

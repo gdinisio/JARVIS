@@ -117,6 +117,21 @@ export function SettingsView(): JSX.Element {
               <Row label="Demo mode" hint="Run the full interface with no model and no side effects. Clearly labelled, and nothing is executed.">
                 <Toggle checked={settings.general.demoMode} onChange={(v) => patch({ general: { demoMode: v } })} label="Demo mode" />
               </Row>
+              <Row
+                label="Launch at login"
+                hint={
+                  platform === 'linux'
+                    ? 'Not supported on this platform; add JARVIS to your desktop environment’s startup applications.'
+                    : 'Start JARVIS automatically when you sign in.'
+                }
+              >
+                <Toggle
+                  checked={settings.general.launchOnStartup}
+                  onChange={(v) => patch({ general: { launchOnStartup: v } })}
+                  label="Launch at login"
+                  disabled={platform === 'linux'}
+                />
+              </Row>
               <Row label="Start minimised" hint="Launch into the tray instead of opening the window.">
                 <Toggle checked={settings.general.startMinimised} onChange={(v) => patch({ general: { startMinimised: v } })} label="Start minimised" />
               </Row>

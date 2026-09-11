@@ -63,6 +63,13 @@ export async function runSmoke(window: BrowserWindow): Promise<void> {
       await wait(600)
     }
 
+    // Headless test machines have no speech voices; silence the engine so the
+    // run exercises the interface rather than the absence of audio hardware.
+    if (process.env.JARVIS_SMOKE_SILENT !== '0') {
+      await evaluate(`window.jarvis.updateSettings({ voice: { engine: 'off' } })`)
+      await wait(300)
+    }
+
     /* The tool layer, through the same path the model uses. */
     const context = {
       settings: settings.get(),
