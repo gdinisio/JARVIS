@@ -1,4 +1,4 @@
-import { isAbsolute, normalize, relative, resolve, basename, sep } from 'node:path'
+import { win32, posix, basename as nativeBasename, type PlatformPath } from 'node:path'
 import { homedir, tmpdir } from 'node:os'
 
 /**
@@ -26,14 +26,29 @@ export type PathCheck =
   | { ok: false; code: PathFailureCode; reason: string }
 
 const WINDOWS_DEVICE_NAMES = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i
+
+/**
+ * Path rules are evaluated with the semantics of the *target* platform, not
+ * the host. Without this, a Windows path checked on any other system parses
+ * as a single relative filename and every rule silently passes.
+ */
+function pathFor(platform: NodeJS.Platform): PlatformPath {
+  return platform === 'win32' ? win32 : posix
+}
 const CONTROL_CHARS = /[\u0000-\u001F\u007F]/
 const NUL = '\u0000'
 
 /** Expands `~` and `%VAR%` / `$VAR` references using the supplied environment. */
-export function expandPath(input: string, home = homedir(), env: NodeJS.ProcessEnv = process.env): string {
+export function expandPath(
+  input: string,
+  home = homedir(),
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform
+): string {
+  const path = pathFor(platform)
   let value = input.trim()
   if (value === '~') return home
-  if (value.startsWith('~/') || value.startsWith('~\\')) value = resolve(home, value.slice(2))
+  if (value.startsWith('~/') || value.startsWith('~\\')) value = path.resolve(home, value.slice(2))
   value = value.replace(/%([A-Za-z_][A-Za-z0-9_]*)%/g, (match, name: string) => {
     const key = Object.keys(env).find((k) => k.toLowerCase() === String(name).toLowerCase())
     return key && env[key] ? env[key]! : match
@@ -44,15 +59,16 @@ export function expandPath(input: string, home = homedir(), env: NodeJS.ProcessE
 
 /** True when `child` is `parent` or lives underneath it (segment-aware). */
 export function isInside(parent: string, child: string, platform: NodeJS.Platform = process.platform): boolean {
-  const normalise = (p: string) => {
-    const value = normalize(p).replace(/[\\/]+$/, '') || sep
-    return platform === 'win32' ? value.toLowerCase().replace(/\//g, '\\') : value
+  const path = pathFor(platform)
+  const normalise = (value: string) => {
+    const unified = platform === 'win32' ? value.replace(/\//g, '\\').toLowerCase() : value
+    return path.normalize(unified).replace(/[\\/]+$/, '') || path.sep
   }
   const a = normalise(parent)
   const b = normalise(child)
   if (a === b) return true
-  const rel = relative(a, b)
-  return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel)
+  const rel = path.relative(a, b)
+  return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel)
 }
 
 /**
@@ -71,10 +87,11 @@ export function validatePath(input: unknown, policy: PathPolicy, mode: 'read' | 
   }
 
   const platform = policy.platform ?? process.platform
+  const path = pathFor(platform)
   const home = policy.home ?? homedir()
-  const expanded = expandPath(input, home)
+  const expanded = expandPath(input, home, process.env, platform)
 
-  if (platform === 'win32' && WINDOWS_DEVICE_NAMES.test(basename(expanded))) {
+  if (platform === 'win32' && WINDOWS_DEVICE_NAMES.test(path.basename(expanded.replace(/\//g, '\\')))) {
     return { ok: false, code: 'invalid', reason: 'That name is reserved by Windows.' }
   }
   // UNC and device paths bypass normal drive semantics - refuse them outright.
@@ -82,16 +99,16 @@ export function validatePath(input: unknown, policy: PathPolicy, mode: 'read' | 
     return { ok: false, code: 'invalid', reason: 'Network and device paths are not supported.' }
   }
 
-  const absolute = isAbsolute(expanded) ? normalize(expanded) : resolve(home, expanded)
+  const absolute = path.isAbsolute(expanded) ? path.normalize(expanded) : path.resolve(home, expanded)
 
-  const protectedRoots = policy.protectedPaths.map((p) => expandPath(p, home))
+  const protectedRoots = policy.protectedPaths.map((entry) => expandPath(entry, home, process.env, platform))
   for (const root of protectedRoots) {
     if (isInside(root, absolute, platform)) {
       return { ok: false, code: 'protected', reason: `${absolute} is inside a protected system location.` }
     }
   }
 
-  const allowedRoots = [home, tmpdir(), ...policy.workspaceRoots.map((p) => expandPath(p, home))]
+  const allowedRoots = [home, tmpdir(), ...policy.workspaceRoots.map((entry) => expandPath(entry, home, process.env, platform))]
   const inAllowed = allowedRoots.some((root) => isInside(root, absolute, platform))
 
   if (!inAllowed) {
@@ -188,7 +205,7 @@ export function validateCommand(command: unknown, rawArgs: unknown, policy: Comm
   }
   if (args.length > 64) return { ok: false, reason: 'Too many arguments.' }
 
-  const program = basename(file).replace(/\.(exe|cmd|bat|com|ps1|sh)$/i, '').toLowerCase()
+  const program = nativeBasename(file.replace(/\\/g, '/')).replace(/\.(exe|cmd|bat|com|ps1|sh)$/i, '').toLowerCase()
   const allowListed = policy.allowedCommands.some((c) => c.toLowerCase().replace(/\.exe$/i, '') === program)
 
   // Shell interpreters would re-introduce string parsing; never allow them implicitly.

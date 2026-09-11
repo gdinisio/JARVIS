@@ -174,7 +174,7 @@ const meta: Record<ToolName, Meta> = {
   recall: { description: 'List what JARVIS remembers about the user.', risk: 'low', category: 'memory', offline: true },
   create_routine: { description: 'Save a named multi-step routine the user can run later by name or trigger phrase.', risk: 'low', category: 'memory', offline: true },
   run_routine: { description: 'Run a saved routine by name.', risk: 'medium', category: 'memory', offline: true },
-  list_routines: { description: 'List saved routines.', risk: 'low', category: 'memory', offline: true },
+  list_routines: { description: 'List the routines the user has saved, with their trigger phrases and step counts.', risk: 'low', category: 'memory', offline: true },
   delete_routine: { description: 'Delete a saved routine.', risk: 'medium', category: 'memory', offline: true }
 }
 

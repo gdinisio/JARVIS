@@ -57,9 +57,10 @@ export function scoreComplexity(text: string, input: Partial<RoutingInput> = {})
   if (SIMPLE_COMMAND.test(value) && words <= 8 && !MULTI_STEP.test(value)) score -= 2
   if (STATUS_QUESTION.test(value) && words <= 10) score -= 1
 
-  if (input.hasToolResults && (input.turnIndex ?? 0) >= 2) score += 2
-
-  return Math.max(0, score)
+  // Depth is added after clamping: several tool rounds into a request, the
+  // remaining reasoning is harder than the opening sentence suggested.
+  const depth = input.hasToolResults && (input.turnIndex ?? 0) >= 2 ? 2 : 0
+  return Math.max(0, score) + depth
 }
 
 const CLAUDE_THRESHOLD = 3

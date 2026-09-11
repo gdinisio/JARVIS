@@ -80,6 +80,11 @@ function bootstrap(): void {
       logger.info('app', 'System resumed.')
     })
 
+    if (process.env.JARVIS_SMOKE === '1') {
+      // End-to-end verification run; see src/main/dev/smoke.ts.
+      window.once('ready-to-show', () => void import('./dev/smoke').then((module) => module.runSmoke(window)))
+    }
+
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createMainWindow()
       else showWindow()

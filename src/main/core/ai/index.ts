@@ -78,12 +78,13 @@ class ProviderManager {
 
   status(activeOverride?: ProviderId | null): ProviderStatus {
     const config = settings.get().ai
-    const demo = config.provider !== 'auto' ? false : !this.anyConfigured()
     return {
       active: activeOverride ?? null,
       mode: config.provider,
       online: this.online,
-      demo: demo || settings.get().general.demoMode,
+      // Demo mode is a deliberate choice. Having no key configured is a
+      // different state: JARVIS still executes, using offline matching.
+      demo: settings.get().general.demoMode,
       claude: {
         configured: this.claude.isConfigured(),
         ok: this.health.claude.ok,

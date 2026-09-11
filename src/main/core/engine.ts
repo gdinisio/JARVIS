@@ -137,7 +137,6 @@ export class Engine {
       if (isBareWake(text)) {
         this.reply('Online.', undefined, false)
         this.finish('complete')
-        this.record(request, text, [], 'success', started, 'local')
         return
       }
 
@@ -152,13 +151,16 @@ export class Engine {
         detail = result.summary
         this.reply(result.summary ?? 'Routine complete.')
         this.finish(result.ok ? 'complete' : 'error')
-        this.record(request, text, actions, outcome, started, 'local', detail)
         return
       }
 
       if (config.general.demoMode || !providers.anyConfigured()) {
-        const handled = await this.handleWithoutModel(text, request, started, config.general.demoMode)
-        if (handled) return
+        const handled = await this.handleWithoutModel(text, config.general.demoMode)
+        actions.push(...handled.actions)
+        outcome = handled.outcome
+        detail = handled.detail
+        provider = handled.provider
+        return
       }
 
       bus.emit({ type: 'status', status: 'thinking' })
@@ -555,10 +557,8 @@ export class Engine {
 
   private async handleWithoutModel(
     text: string,
-    request: SubmitRequest,
-    started: number,
     demo: boolean
-  ): Promise<boolean> {
+  ): Promise<{ actions: string[]; outcome: HistoryOutcome; detail?: string; provider: HistoryEntry['provider'] }> {
     if (demo) {
       const reply = demoReply(text)
       bus.emit({ type: 'status', status: 'thinking' })
@@ -569,19 +569,22 @@ export class Engine {
       }
       this.reply(reply.text)
       this.finish('complete')
-      this.record(request, text, reply.actions, 'success', started, 'demo', 'Demo mode — nothing was executed.')
-      return true
+      return { actions: reply.actions, outcome: 'success', detail: 'Demo mode — nothing was executed.', provider: 'demo' }
     }
 
     const intent = matchLocalIntent(text)
     if (intent) {
       bus.say('SYSTEM', 'No AI provider configured — using offline command matching.', { level: 'warn' })
       bus.emit({ type: 'status', status: 'executing' })
-      const outcome = await this.invokeTool(intent.call.name, intent.call.args)
-      this.reply(outcome.result.summary ?? intent.reply)
-      this.finish(outcome.result.ok ? 'complete' : 'error')
-      this.record(request, text, [intent.call.name], outcome.result.ok ? 'success' : 'failed', started, 'local', outcome.result.error)
-      return true
+      const executed = await this.invokeTool(intent.call.name, intent.call.args)
+      this.reply(executed.result.summary ?? intent.reply)
+      this.finish(executed.result.ok ? 'complete' : 'error')
+      return {
+        actions: [intent.call.name],
+        outcome: executed.result.ok ? 'success' : executed.result.blocked ? 'blocked' : 'failed',
+        detail: executed.result.error,
+        provider: 'local'
+      }
     }
 
     const message =
@@ -589,8 +592,7 @@ export class Engine {
     bus.say('ERROR', message, { level: 'error' })
     this.reply(message)
     this.finish('error')
-    this.record(request, text, [], 'failed', started, 'local', 'No provider configured.')
-    return true
+    return { actions: [], outcome: 'failed', detail: 'No provider configured.', provider: 'local' }
   }
 
   /* ──────────────────────────── plumbing ─────────────────────────────── */
@@ -630,13 +632,15 @@ export class Engine {
     this.pushTranscript(message)
     bus.emit({ type: 'message', message })
     bus.say('JARVIS', text)
-    this.speak(text)
-    if (!interim) bus.emit({ type: 'status', status: 'speaking' })
+    const spoke = this.speak(text)
+    if (!interim && spoke) bus.emit({ type: 'status', status: 'speaking' })
   }
 
-  private speak(text: string): void {
-    if (!settings.get().voice.enabled || settings.get().voice.engine === 'off') return
+  private speak(text: string): boolean {
+    const voice = settings.get().voice
+    if (!voice.enabled || voice.engine === 'off') return false
     bus.emit({ type: 'speak', id: id('sp'), text })
+    return true
   }
 
   private finish(status: 'idle' | 'complete' | 'error'): void {

@@ -43,13 +43,13 @@ export function refreshTrayMenu(): void {
     { label: 'Open JARVIS', click: () => showWindow() },
     { type: 'separator' },
     {
-      label: 'Voice output',
+      label: 'Speak replies',
       type: 'checkbox',
       checked: config.voice.enabled,
       click: (item) => settings.update({ voice: { enabled: item.checked } })
     },
     {
-      label: `Wake word ("${config.wakeWord.phrase}")`,
+      label: `Listen for "${config.wakeWord.phrase}"`,
       type: 'checkbox',
       checked: config.wakeWord.enabled,
       click: (item) => settings.update({ wakeWord: { enabled: item.checked } })

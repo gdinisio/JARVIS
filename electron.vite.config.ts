@@ -12,6 +12,7 @@ export default defineConfig({
       }
     },
     build: {
+      minify: 'esbuild',
       rollupOptions: {
         input: { index: resolve('src/main/index.ts') }
       }
@@ -39,8 +40,17 @@ export default defineConfig({
     },
     plugins: [react()],
     build: {
+      minify: 'esbuild',
+      // A desktop shell loads from disk; a couple of larger chunks beat many
+      // round trips, so the default 500 kB warning is not meaningful here.
+      chunkSizeWarningLimit: 1200,
       rollupOptions: {
-        input: { index: resolve('src/renderer/index.html') }
+        input: { index: resolve('src/renderer/index.html') },
+        output: {
+          manualChunks: {
+            vendor: ['react', 'react-dom', 'zustand']
+          }
+        }
       }
     }
   }

@@ -28,7 +28,9 @@ export function demoReply(text: string): DemoReply {
   }
 
   if (/\b(open|launch|start)\b/.test(value)) {
-    const target = /\b(?:open|launch|start)\s+(?:my\s+|the\s+)?([a-z0-9 .+-]{2,40})/.exec(value)?.[1]?.trim() ?? 'that application'
+    const matched = /\b(?:open|launch|start)\s+((?:my |the |your )?[a-z0-9 .+-]{2,40})/.exec(value)?.[1]?.trim()
+    // "open my browser" reads back as "your browser", the way JARVIS would say it.
+    const target = matched ? matched.replace(/^my /, 'your ') : 'that application'
     return {
       text: `Demo mode is active, so I have not opened ${target}. Add an API key in Settings to let me act for real.`,
       console: [
