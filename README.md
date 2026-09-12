@@ -148,6 +148,17 @@ dangerous URL schemes are refused, checks that the confirmation gate appears and
 that approving it actually performs the action, and writes a screenshot of every
 screen to `screenshots/`.
 
+### If startup fails with `ERR_MODULE_NOT_FOUND`
+
+`node_modules` is out of date — dependencies changed since your last install:
+
+```bash
+npm install
+```
+
+Every `dev`, `start` and `build` now checks this first and says so plainly
+rather than letting Electron die in a dialog.
+
 ### If `npm run dev` says `Error: Electron uninstall`
 
 `npm install` downloads the Electron binary from a postinstall script, which is

@@ -1,11 +1,16 @@
 /**
- * Verifies the Electron binary is present, and fetches it if it is not.
+ * Preflight: everything that must be true before the app can start.
  *
- * `npm install` downloads the binary from a postinstall script, which is
- * skipped when `ignore-scripts` is set and fails in several distinct ways
- * behind proxies, antivirus and synced folders. electron-vite reports all of
- * them as `Error: Electron uninstall`, which points at nothing actionable,
- * so this runs first and says what actually went wrong.
+ * Two things go wrong often enough to deserve a real message rather than a
+ * stack trace:
+ *
+ *  - The Electron binary is missing. `npm install` fetches it from a
+ *    postinstall script, which is skipped when `ignore-scripts` is set and
+ *    fails behind proxies, antivirus and synced folders. electron-vite
+ *    reports every such case as `Error: Electron uninstall`.
+ *  - node_modules is out of date after a pull that changed dependencies.
+ *    Electron then dies at startup with ERR_MODULE_NOT_FOUND in a dialog
+ *    that never mentions `npm install`.
  */
 import { existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync, rmSync } from 'node:fs'
 import { join, dirname } from 'node:path'
@@ -98,6 +103,39 @@ The download itself failed. Try one of:
     then set ELECTRON_OVERRIDE_DIST_PATH to the extracted folder.
 `
 }
+
+/* ── Runtime dependencies ───────────────────────────────────────────────── */
+
+const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
+const missing = Object.keys(manifest.dependencies ?? {}).filter((name) => {
+  try {
+    require.resolve(`${name}/package.json`, { paths: [root] })
+    return false
+  } catch {
+    // Some packages do not export package.json; fall back to the entry point.
+    try {
+      require.resolve(name, { paths: [root] })
+      return false
+    } catch {
+      return true
+    }
+  }
+})
+
+if (missing.length) {
+  console.error(`
+node_modules is out of date: ${missing.join(', ')} ${missing.length === 1 ? 'is' : 'are'} missing.
+
+This normally means dependencies changed since your last install. Run:
+
+    npm install
+
+then try again.
+`)
+  process.exit(1)
+}
+
+/* ── Electron binary ────────────────────────────────────────────────────── */
 
 const dir = moduleDir()
 if (!dir) {

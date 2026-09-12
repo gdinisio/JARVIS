@@ -1,7 +1,7 @@
 {
   "name": "jarvis",
   "version": "1.0.0",
-  "description": "JARVIS — Just A Really Very Intelligent System. A cross-platform desktop AI assistant that can see, reason about, and safely control your computer.",
+  "description": "JARVIS \u2014 Just A Really Very Intelligent System. A cross-platform desktop AI assistant that can see, reason about, and safely control your computer.",
   "private": true,
   "type": "module",
   "main": "out/main/index.js",
@@ -11,9 +11,9 @@
     "node": ">=20"
   },
   "scripts": {
-    "dev": "node scripts/ensure-electron.mjs && electron-vite dev",
-    "start": "node scripts/ensure-electron.mjs && electron-vite preview",
-    "build": "npm run typecheck && node scripts/ensure-electron.mjs && electron-vite build",
+    "dev": "node scripts/preflight.mjs && electron-vite dev",
+    "start": "node scripts/preflight.mjs && electron-vite preview",
+    "build": "npm run typecheck && node scripts/preflight.mjs && electron-vite build",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.test.json",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -23,7 +23,7 @@
     "dist:mac": "npm run build && electron-builder --mac",
     "dist:linux": "npm run build && electron-builder --linux",
     "smoke": "npm run build && node scripts/smoke.mjs",
-    "postinstall": "node scripts/ensure-electron.mjs"
+    "postinstall": "node scripts/preflight.mjs"
   },
   "devDependencies": {
     "@types/node": "^24.13.4",
