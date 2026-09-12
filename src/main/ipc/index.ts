@@ -145,6 +145,21 @@ export function registerIpc(): void {
     return { ok: true, text: result.text, durationMs: result.durationMs }
   })
 
+  handle<{ text: string; voice?: string; speed?: number }>(IPC.invoke.synthesise, async (payload) => {
+    const text = String(payload?.text ?? '').trim()
+    if (!text) return { ok: false, error: 'Nothing to say.' }
+    if (!providers.groq.isConfigured()) {
+      return { ok: false, error: 'The neural voice needs a Groq API key. Add one in Settings \u2192 AI.' }
+    }
+    const config = settings.get().voice
+    const result = await providers.groq.synthesise(text, {
+      voice: payload.voice || config.neuralVoice,
+      speed: payload.speed ?? config.rate
+    })
+    // Sent as a plain array buffer; the renderer decodes and plays it.
+    return { ok: true, audio: result.audio.buffer.slice(result.audio.byteOffset, result.audio.byteOffset + result.audio.byteLength), mimeType: result.mimeType }
+  })
+
   handle<{ text: string }>(IPC.invoke.speakNative, async (payload) => speakNative(payload.text))
   handle(IPC.invoke.stopNativeSpeech, async () => {
     stopNativeSpeech()

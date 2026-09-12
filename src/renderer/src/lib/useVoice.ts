@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef } from 'react'
 import { useStore } from '../store/useStore'
 import { VoiceInput, type UtteranceResult } from './voice'
 import { speaker } from './tts'
+import { neuralVoice } from './neuralVoice'
+import { prepareSpeech } from '@shared/speech'
 import { audioBus } from './audioBus'
 import { playCue } from './sound'
 import { matchWakePhrase } from './wake'
@@ -262,16 +264,40 @@ export function useVoice(): VoiceControls {
     if (!speakRequest || !settings) return
     const state = useStore.getState()
     state.clearSpeakRequest()
-
     if (!settings.voice.enabled || settings.voice.engine === 'off') return
+
+    // Written text read literally is most of what makes speech sound robotic:
+    // clean it, then deliver it a sentence at a time.
+    const { text, sentences } = prepareSpeech(
+      speakRequest.text,
+      settings.voice.chunked === false ? 100_000 : 220
+    )
+    if (!sentences.length) return
+
+    const finished = () => {
+      useStore.getState().setSpeaking(false)
+      useStore.getState().applyEvent({ type: 'status', status: 'idle' })
+    }
+
+    const speakWithSystem = () => {
+      const started = speaker.speak(sentences, settings.voice, {
+        onStart: () => useStore.getState().setSpeaking(true),
+        onEnd: finished,
+        onError: (message) => {
+          useStore.getState().setVoiceError(message)
+          useStore.getState().setSpeaking(false)
+        }
+      })
+      if (!started) useStore.getState().setSpeaking(false)
+    }
 
     if (settings.voice.engine === 'native') {
       state.setSpeaking(true)
       audioBus.publishEnvelope(0.5, performance.now() / 1000)
-      void window.jarvis.speakNative(speakRequest.text).finally(() => {
-        // Native speech gives no end event; estimate from length so the core
+      void window.jarvis.speakNative(text).finally(() => {
+        // Native speech reports no end event; estimate from length so the core
         // returns to idle at roughly the right moment.
-        const estimate = Math.min(16_000, 900 + speakRequest.text.length * 62)
+        const estimate = Math.min(16_000, 900 + text.length * 62)
         setTimeout(() => {
           useStore.getState().setSpeaking(false)
           audioBus.clear()
@@ -280,22 +306,27 @@ export function useVoice(): VoiceControls {
       return
     }
 
-    const started = speaker.speak(speakRequest.text, settings.voice, {
-      onStart: () => useStore.getState().setSpeaking(true),
-      onEnd: () => {
-        useStore.getState().setSpeaking(false)
-        useStore.getState().applyEvent({ type: 'status', status: 'idle' })
-      },
-      onError: (message) => {
-        useStore.getState().setVoiceError(message)
-        useStore.getState().setSpeaking(false)
-      }
-    })
-    if (!started) state.setSpeaking(false)
+    if (settings.voice.engine === 'neural') {
+      void neuralVoice
+        .speak(sentences, settings.voice, {
+          onStart: () => useStore.getState().setSpeaking(true),
+          onEnd: finished,
+          onError: (message) => useStore.getState().setVoiceError(message)
+        })
+        .then((spoke) => {
+          // Synthesis never started; use the operating system's voices so the
+          // reply is still heard, and say once why.
+          if (!spoke) speakWithSystem()
+        })
+      return
+    }
+
+    speakWithSystem()
   }, [speakRequest, settings])
 
   const stopSpeaking = useCallback(() => {
     speaker.stop()
+    neuralVoice.stop()
     void window.jarvis.stopNativeSpeech()
     useStore.getState().setSpeaking(false)
     audioBus.clear()
@@ -314,6 +345,7 @@ export function useVoice(): VoiceControls {
     return () => {
       inputRef.current?.close()
       speaker.stop()
+      neuralVoice.stop()
     }
   }, [])
 

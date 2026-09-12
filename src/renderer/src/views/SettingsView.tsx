@@ -3,6 +3,8 @@ import type { ProviderId, Settings } from '@shared/types'
 import { useStore } from '../store/useStore'
 import { Row, Toggle, Slider, Select, TextField, HotkeyField } from '../components/fields'
 import { speaker } from '../lib/tts'
+import { neuralVoice } from '../lib/neuralVoice'
+import { prepareSpeech } from '@shared/speech'
 import { listMicrophones } from '../lib/voice'
 import { playCue } from '../lib/sound'
 import type { JSX } from 'react'
@@ -29,6 +31,20 @@ const SECTIONS: Array<{ id: SectionId; label: string }> = [
 ]
 
 const CLAUDE_MODELS = ['claude-opus-5', 'claude-sonnet-5', 'claude-haiku-4-5-20251001']
+/** PlayAI voices, grouped so the list reads as a choice rather than a dump. */
+const NEURAL_VOICES = [
+  { value: 'Fritz-PlayAI', label: 'Fritz — measured, neutral' },
+  { value: 'Atlas-PlayAI', label: 'Atlas — low and calm' },
+  { value: 'Basil-PlayAI', label: 'Basil — British, dry' },
+  { value: 'Briggs-PlayAI', label: 'Briggs — warm, deliberate' },
+  { value: 'Calum-PlayAI', label: 'Calum — light, quick' },
+  { value: 'Cillian-PlayAI', label: 'Cillian — Irish, soft' },
+  { value: 'Celeste-PlayAI', label: 'Celeste — clear, even' },
+  { value: 'Quinn-PlayAI', label: 'Quinn — bright, precise' },
+  { value: 'Arista-PlayAI', label: 'Arista — crisp, formal' },
+  { value: 'Indigo-PlayAI', label: 'Indigo — relaxed' }
+]
+
 const GROQ_MODELS = [
   'llama-3.3-70b-versatile',
   'llama-3.1-8b-instant',
@@ -52,6 +68,8 @@ export function SettingsView(): JSX.Element {
   const [microphones, setMicrophones] = useState<Array<{ deviceId: string; label: string }>>([])
   const [logs, setLogs] = useState<Array<{ id: string; ts: number; level: string; scope: string; message: string }>>([])
   const [warning, setWarning] = useState<string | null>(null)
+  const [previewing, setPreviewing] = useState(false)
+  const [previewError, setPreviewError] = useState<string | null>(null)
 
   const patch = useCallback(async (value: unknown) => {
     const result = await window.jarvis.updateSettings(value)
@@ -63,12 +81,34 @@ export function SettingsView(): JSX.Element {
   }, [provider])
 
   useEffect(() => {
-    if (section === 'voice') void speaker.ready().then(setVoices)
+    if (section === 'voice') void speaker.ready().then(() => setVoices(speaker.ranked(settings?.general.language ?? 'en')))
     if (section === 'microphone') void listMicrophones().then(setMicrophones)
     if (section === 'logs') void window.jarvis.logs().then((entries) => Array.isArray(entries) && setLogs(entries.slice().reverse()))
   }, [section])
 
   if (!settings) return <div className="view"><div className="empty">Loading settings…</div></div>
+
+  /** Previews through whichever engine is selected, so it is a real sample. */
+  const preview = async () => {
+    const sample = 'Certainly. System diagnostics are nominal, and I am ready when you are.'
+    const { sentences } = prepareSpeech(sample)
+    setPreviewError(null)
+    setPreviewing(true)
+    try {
+      if (settings.voice.engine === 'native') {
+        await window.jarvis.speakNative(sample)
+      } else if (settings.voice.engine === 'neural') {
+        const spoke = await neuralVoice.speak(sentences, settings.voice, {
+          onError: (message) => setPreviewError(message)
+        })
+        if (!spoke) speaker.speak(sentences, settings.voice, { onError: setPreviewError })
+      } else {
+        speaker.speak(sentences, settings.voice, { onError: setPreviewError })
+      }
+    } finally {
+      setPreviewing(false)
+    }
+  }
 
   const saveKey = async (name: 'ANTHROPIC_API_KEY' | 'GROQ_API_KEY') => {
     const value = keyDraft[name] ?? ''
@@ -281,34 +321,69 @@ export function SettingsView(): JSX.Element {
               <Row label="Speak replies">
                 <Toggle checked={settings.voice.enabled} onChange={(v) => patch({ voice: { enabled: v } })} label="Speak replies" />
               </Row>
-              <Row label="Engine" hint="System voices come from the operating system. Native uses say / SAPI directly.">
+              <Row
+                label="Engine"
+                hint={
+                  settings.voice.engine === 'neural'
+                    ? 'Synthesised through Groq. Markedly more natural than the system voices, and needs a Groq key and a connection.'
+                    : 'System voices come from the operating system. Native shells out to say / SAPI for systems that expose none.'
+                }
+              >
                 <Select
                   label="Speech engine"
                   value={settings.voice.engine}
                   onChange={(v) => patch({ voice: { engine: v } })}
                   options={[
+                    { value: 'neural', label: 'Neural — most natural' },
                     { value: 'system', label: 'System voices' },
                     { value: 'native', label: `Native (${platform === 'win32' ? 'SAPI' : platform === 'darwin' ? 'say' : 'speech-dispatcher'})` },
                     { value: 'off', label: 'Silent' }
                   ]}
                 />
               </Row>
-              <Row label="Voice" hint={voices.length ? `${voices.length} voices available` : 'No system voices were found.'}>
-                <Select
+
+              {settings.voice.engine === 'neural' ? (
+                <Row label="Voice" hint={provider?.groq.configured ? undefined : 'Needs a Groq API key — Settings → AI.'}>
+                  <Select
+                    label="Neural voice"
+                    value={settings.voice.neuralVoice}
+                    onChange={(v) => patch({ voice: { neuralVoice: v } })}
+                    options={NEURAL_VOICES}
+                  />
+                </Row>
+              ) : (
+                <Row
                   label="Voice"
-                  value={settings.voice.voiceURI}
-                  onChange={(v) => patch({ voice: { voiceURI: v } })}
-                  options={[
-                    { value: '', label: 'Automatic' },
-                    ...voices.map((voice) => ({ value: voice.voiceURI, label: `${voice.name} (${voice.lang})` }))
-                  ]}
-                />
-              </Row>
+                  hint={
+                    voices.length
+                      ? `${voices.length} available${voices.some((v) => /natural|neural|premium|enhanced/i.test(v.name)) ? '. Names containing Natural or Neural sound far better than the rest.' : ''}`
+                      : 'No system voices were found.'
+                  }
+                >
+                  <Select
+                    label="Voice"
+                    value={settings.voice.voiceURI}
+                    onChange={(v) => patch({ voice: { voiceURI: v } })}
+                    options={[
+                      { value: '', label: 'Automatic — best available' },
+                      ...voices.map((voice) => ({
+                        value: voice.voiceURI,
+                        label: `${voice.name}${/natural|neural|premium|enhanced/i.test(voice.name) ? ' ★' : ''} (${voice.lang})`
+                      }))
+                    ]}
+                  />
+                </Row>
+              )}
               <Row label="Rate">
                 <Slider label="Rate" value={settings.voice.rate} min={0.6} max={1.6} step={0.02} onChange={(v) => patch({ voice: { rate: v } })} format={(v) => `${v.toFixed(2)}×`} />
               </Row>
-              <Row label="Pitch">
-                <Slider label="Pitch" value={settings.voice.pitch} min={0.5} max={1.5} step={0.02} onChange={(v) => patch({ voice: { pitch: v } })} format={(v) => v.toFixed(2)} />
+              {settings.voice.engine !== 'neural' && (
+                <Row label="Pitch" hint="1.00 is the voice as recorded. Moving away from it is what makes speech sound synthetic.">
+                  <Slider label="Pitch" value={settings.voice.pitch} min={0.5} max={1.5} step={0.02} onChange={(v) => patch({ voice: { pitch: v } })} format={(v) => v.toFixed(2)} />
+                </Row>
+              )}
+              <Row label="Sentence delivery" hint="Speak one sentence at a time. Engines shape intonation per sentence, so this sounds spoken rather than read.">
+                <Toggle checked={settings.voice.chunked} onChange={(v) => patch({ voice: { chunked: v } })} label="Sentence delivery" />
               </Row>
               <Row label="Volume">
                 <Slider label="Volume" value={settings.voice.volume} min={0} max={1} step={0.05} onChange={(v) => patch({ voice: { volume: v } })} format={(v) => `${Math.round(v * 100)}%`} />
@@ -316,14 +391,9 @@ export function SettingsView(): JSX.Element {
               <Row label="Speak action results" hint="Say each tool result aloud, not just the reply.">
                 <Toggle checked={settings.voice.speakActions} onChange={(v) => patch({ voice: { speakActions: v } })} label="Speak action results" />
               </Row>
-              <Row label="Preview">
-                <button
-                  className="btn"
-                  onClick={() =>
-                    speaker.speak('Certainly. System diagnostics are nominal, and I am ready when you are.', settings.voice)
-                  }
-                >
-                  Speak a sample
+              <Row label="Preview" hint={previewError ?? undefined} warn={!!previewError}>
+                <button className="btn" disabled={previewing} onClick={() => void preview()}>
+                  {previewing ? 'Speaking…' : 'Speak a sample'}
                 </button>
               </Row>
             </Section>
@@ -443,6 +513,9 @@ export function SettingsView(): JSX.Element {
               </Row>
               <Row label="Web access" hint="Allows opening links and search pages in your browser.">
                 <Toggle checked={settings.permissions.webAccess} onChange={(v) => patch({ permissions: { webAccess: v } })} label="Web access" />
+              </Row>
+              <Row label="Clipboard" hint="Lets JARVIS read and write the clipboard. Whatever you last copied — including a password — would be readable.">
+                <Toggle checked={settings.permissions.clipboardAccess} onChange={(v) => patch({ permissions: { clipboardAccess: v } })} label="Clipboard access" />
               </Row>
 
               <div className="tool-table">

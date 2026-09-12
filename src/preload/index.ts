@@ -37,6 +37,14 @@ const api = {
     ipcRenderer.invoke(IPC.invoke.transcribe, { audio, mimeType, language }),
 
   speakNative: (text: string) => ipcRenderer.invoke(IPC.invoke.speakNative, { text }),
+
+  /** Neural speech; returns WAV bytes for the renderer to play. */
+  synthesise: (
+    text: string,
+    voice?: string,
+    speed?: number
+  ): Promise<{ ok: boolean; audio?: ArrayBuffer; mimeType?: string; error?: string }> =>
+    ipcRenderer.invoke(IPC.invoke.synthesise, { text, voice, speed }),
   stopNativeSpeech: () => ipcRenderer.invoke(IPC.invoke.stopNativeSpeech),
 
   runTool: (name: string, args: Record<string, unknown>): Promise<ToolResult> =>

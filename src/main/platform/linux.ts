@@ -181,6 +181,12 @@ export class LinuxAdapter implements PlatformAdapter {
     return value || null
   }
 
+  async emptyTrash(): Promise<{ summary: string }> {
+    const result = await run('gio', ['trash', '--empty'], { timeoutMs: 20_000 })
+    if (result.code !== 0) throw new Error('No supported trash implementation was found.')
+    return { summary: 'The trash is empty.' }
+  }
+
   screenshot(target: string): Promise<string> {
     return captureScreenToFile(target)
   }

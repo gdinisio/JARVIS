@@ -119,6 +119,38 @@ export class GroqProvider implements AIProvider {
     }
   }
 
+  /**
+   * Neural text-to-speech.
+   *
+   * The operating system's voices are serviceable but unmistakably
+   * synthetic. This routes through the same key already used for speech
+   * recognition and returns audio the renderer plays directly, which also
+   * means the core's waveform is driven by real speech rather than an
+   * approximation of it.
+   */
+  async synthesise(
+    text: string,
+    options: { voice?: string; speed?: number; model?: string } = {}
+  ): Promise<{ audio: Buffer; mimeType: string; durationMs: number }> {
+    const started = Date.now()
+    const model = options.model || process.env.JARVIS_GROQ_TTS_MODEL || 'playai-tts'
+    try {
+      const response = await this.sdk().audio.speech.create({
+        model,
+        voice: options.voice || 'Fritz-PlayAI',
+        input: text.slice(0, 4000),
+        response_format: 'wav',
+        // PlayAI clamps outside this range and rejects the request.
+        speed: Math.max(0.5, Math.min(5, options.speed ?? 1))
+      })
+      const audio = Buffer.from(await response.arrayBuffer())
+      if (!audio.length) throw new ProviderError('The speech service returned no audio.', 'invalid', this.id, false)
+      return { audio, mimeType: 'audio/wav', durationMs: Date.now() - started }
+    } catch (error) {
+      throw normaliseSpeechError(error, this.id)
+    }
+  }
+
   /** Speech-to-text for the voice pipeline. */
   async transcribe(audio: Buffer, filename: string, language?: string): Promise<{ text: string; durationMs: number }> {
     const started = Date.now()
@@ -137,6 +169,29 @@ export class GroqProvider implements AIProvider {
       throw normaliseError(error, this.id)
     }
   }
+}
+
+/**
+ * The hosted voice models sit behind a separate terms acceptance, and the
+ * resulting 400 is otherwise indistinguishable from a malformed request.
+ */
+function normaliseSpeechError(error: unknown, provider: ProviderId): ProviderError {
+  const message = error instanceof Error ? error.message : String(error)
+  if (/terms acceptance|model_terms_required|accept the terms/i.test(message)) {
+    return new ProviderError(
+      'The neural voice needs its terms accepted once, at console.groq.com/playground under playai-tts.',
+      'invalid',
+      provider,
+      false
+    )
+  }
+  if (/model_not_found|does not exist|invalid_model/i.test(message)) {
+    return new ProviderError('That neural voice model is not available on this account.', 'invalid', provider, false)
+  }
+  if (/voice/i.test(message) && /not.*(found|valid|supported)/i.test(message)) {
+    return new ProviderError('That voice name is not recognised by the speech service.', 'invalid', provider, false)
+  }
+  return normaliseError(error, provider)
 }
 
 function mimeFor(filename: string): string {

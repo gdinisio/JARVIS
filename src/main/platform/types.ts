@@ -70,6 +70,12 @@ export interface PlatformAdapter {
   killProcess(pid: number): Promise<void>
   defaultBrowser(): Promise<string | null>
 
+  /** Empties the recycle bin / trash. Optional: not every desktop has one. */
+  emptyTrash?(): Promise<{ summary: string; freed?: string }>
+
+  /** Closes every running application except the ones named. */
+  closeOtherApplications?(keep: string[]): Promise<{ closed: string[]; kept: string[] }>
+
   /** Screenshot to a file path; returns the path actually written. */
   screenshot(target: string): Promise<string>
 

@@ -185,6 +185,81 @@ async function transfer(args: Record<string, unknown>, ctx: Parameters<ToolHandl
 }
 
 export const moveFile: ToolHandler = (args, ctx) => transfer(args, ctx, 'move')
+
+/**
+ * Moves several files into one folder.
+ *
+ * "Move these into an Archive folder" is one intent, and doing it as one call
+ * means one confirmation and one all-or-nothing validation pass, rather than a
+ * dozen prompts and a half-finished move.
+ */
+export const moveFiles: ToolHandler = async (args, ctx): Promise<ToolResult> => {
+  const raw = Array.isArray(args.sources) ? (args.sources as unknown[]) : []
+  if (!raw.length) return fail('No files were specified.')
+
+  const destination = validatePath(resolveAlias(String(args.destination ?? '')), ctx.pathPolicy, 'write')
+  if (!destination.ok) return blocked(destination.reason)
+
+  // Validate every path before touching any of them.
+  const sources: string[] = []
+  for (const entry of raw) {
+    const check = validatePath(String(entry), ctx.pathPolicy, 'write')
+    if (!check.ok) return blocked(`${check.reason} Nothing was moved.`)
+    sources.push(check.path)
+  }
+
+  try {
+    await mkdir(destination.path, { recursive: true })
+  } catch (error) {
+    return fail(readableError(error, `create ${shorten(destination.path)}`))
+  }
+
+  const moved: string[] = []
+  const failed: Array<{ path: string; error: string }> = []
+
+  for (const source of sources) {
+    const target = join(destination.path, basename(source))
+    try {
+      if (!(await exists(source))) {
+        failed.push({ path: source, error: 'not found' })
+        continue
+      }
+      if (target === source) continue
+      if (await exists(target)) {
+        failed.push({ path: source, error: 'a file of that name is already there' })
+        continue
+      }
+      try {
+        await rename(source, target)
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EXDEV') throw error
+        await cp(source, target, { recursive: true })
+        await rm(source, { recursive: true, force: true })
+      }
+      moved.push(target)
+    } catch (error) {
+      failed.push({ path: source, error: readableError(error, 'move') })
+    }
+  }
+
+  if (!moved.length) return fail(`Nothing was moved. ${failed[0]?.error ?? ''}`.trim(), { failed })
+  return ok(
+    `Moved ${moved.length} item${moved.length === 1 ? '' : 's'} to ${shorten(destination.path)}${failed.length ? `; ${failed.length} could not be moved` : ''}.`,
+    { moved, failed, destination: destination.path }
+  )
+}
+
+/** Empties the recycle bin or trash. Permanent, so it is high risk. */
+export const emptyTrash: ToolHandler = async () => {
+  const adapter = platform()
+  if (!adapter.emptyTrash) return fail('Emptying the trash is not supported on this system.')
+  try {
+    const result = await adapter.emptyTrash()
+    return ok(result.summary, result)
+  } catch (error) {
+    return fail(error instanceof Error ? error.message : 'The trash could not be emptied.')
+  }
+}
 export const copyFile: ToolHandler = (args, ctx) => transfer(args, ctx, 'copy')
 
 export const renameFile: ToolHandler = async (args, ctx) => {

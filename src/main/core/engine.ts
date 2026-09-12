@@ -413,6 +413,7 @@ export class Engine {
     if (config.permissions.tools[tool.name] === 'deny') return false
     if (tool.category === 'screen' && !config.permissions.screenAccess) return false
     if (tool.category === 'web' && !config.permissions.webAccess) return false
+    if (tool.category === 'clipboard' && !config.permissions.clipboardAccess) return false
     if (tool.category === 'power' && !config.automation.allowPower) return false
     if (tool.category === 'memory' && !config.memory.enabled) return false
     if (tool.category === 'terminal' && !config.automation.allowShell && !config.automation.allowedCommands.length) return false

@@ -210,6 +210,101 @@ describe('filesystem tools', () => {
   })
 })
 
+describe('batch file moves', () => {
+  it('moves several files into one folder in a single call', async () => {
+    const source = join(root, 'batch')
+    mkdirSync(source, { recursive: true })
+    for (const name of ['a.txt', 'b.txt', 'c.txt']) writeFileSync(join(source, name), name)
+
+    const result = await executeTool(
+      'move_files',
+      { sources: ['a.txt', 'b.txt', 'c.txt'].map((name) => join(source, name)), destination: join(root, 'batch-archive') },
+      context
+    )
+    expect(result.ok).toBe(true)
+    for (const name of ['a.txt', 'b.txt', 'c.txt']) {
+      expect(existsSync(join(root, 'batch-archive', name)), name).toBe(true)
+    }
+  })
+
+  it('creates the destination folder if it is missing', async () => {
+    const file = join(root, 'lonely.txt')
+    writeFileSync(file, 'x')
+    const result = await executeTool('move_files', { sources: [file], destination: join(root, 'made/up/path') }, context)
+    expect(result.ok).toBe(true)
+    expect(existsSync(join(root, 'made/up/path/lonely.txt'))).toBe(true)
+  })
+
+  it('refuses the whole batch when any path is out of bounds, moving nothing', async () => {
+    const keeper = join(root, 'keeper.txt')
+    writeFileSync(keeper, 'keep')
+    const result = await executeTool(
+      'move_files',
+      { sources: [keeper, '/etc/passwd'], destination: join(root, 'nope') },
+      context
+    )
+    expect(result.ok).toBe(false)
+    expect(result.blocked).toBe(true)
+    expect(existsSync(keeper)).toBe(true)
+    expect(existsSync(join(root, 'nope'))).toBe(false)
+  })
+
+  it('refuses a destination outside the allowed roots', async () => {
+    const file = join(root, 'stay.txt')
+    writeFileSync(file, 'x')
+    const result = await executeTool('move_files', { sources: [file], destination: '/etc/jarvis' }, context)
+    expect(result.ok).toBe(false)
+    expect(existsSync(file)).toBe(true)
+  })
+
+  it('reports per-file failures without abandoning the rest', async () => {
+    const real = join(root, 'real.txt')
+    writeFileSync(real, 'x')
+    const result = await executeTool(
+      'move_files',
+      { sources: [real, join(root, 'ghost.txt')], destination: join(root, 'partial') },
+      context
+    )
+    expect(result.ok).toBe(true)
+    expect((result.data as { failed: unknown[] }).failed).toHaveLength(1)
+    expect(existsSync(join(root, 'partial/real.txt'))).toBe(true)
+  })
+})
+
+describe('storage analysis', () => {
+  it('finds the largest files and breaks usage down by folder', async () => {
+    const big = join(root, 'storage')
+    mkdirSync(join(big, 'videos'), { recursive: true })
+    mkdirSync(join(big, 'notes'), { recursive: true })
+    writeFileSync(join(big, 'videos', 'clip.bin'), Buffer.alloc(400 * 1024))
+    writeFileSync(join(big, 'notes', 'small.txt'), 'tiny')
+
+    const result = await executeTool('find_large_files', { folder: big, minimum_mb: 0, limit: 5 }, context)
+    expect(result.ok).toBe(true)
+    const data = result.data as { files: Array<{ name: string }>; largestFolders: Array<{ folder: string }> }
+    expect(data.files[0].name).toBe('clip.bin')
+    expect(data.largestFolders[0].folder).toBe('videos')
+  })
+
+  it('says so plainly when nothing meets the threshold', async () => {
+    const result = await executeTool('find_large_files', { folder: join(root, 'storage'), minimum_mb: 500 }, context)
+    expect(result.ok).toBe(true)
+    expect(result.summary).toMatch(/holds/i)
+  })
+
+  it('measures a folder', async () => {
+    const result = await executeTool('get_folder_size', { path: join(root, 'storage') }, context)
+    expect(result.ok).toBe(true)
+    expect((result.data as { sizeBytes: number }).sizeBytes).toBeGreaterThan(300 * 1024)
+  })
+
+  it('will not measure a protected location', async () => {
+    const result = await executeTool('find_large_files', { folder: '/etc' }, context)
+    expect(result.ok).toBe(false)
+    expect(result.blocked).toBe(true)
+  })
+})
+
 describe('terminal tool', () => {
   it('refuses a command that is not on the allow-list', async () => {
     const result = await executeTool('execute_command', { command: 'curl', args: ['https://example.com'] }, context)

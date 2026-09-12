@@ -102,6 +102,32 @@ export async function runSmoke(window: BrowserWindow): Promise<void> {
     const read = await executeTool('read_text_file', { path: '~/jarvis-smoke/archive/notes.txt' }, context)
     record('read_text_file reads it back', read.ok, read.summary)
 
+    const large = await executeTool('find_large_files', { folder: '~/jarvis-smoke', minimum_mb: 0, limit: 5 }, context)
+    record('find_large_files reports what is using space', large.ok, large.summary)
+
+    const folderSize = await executeTool('get_folder_size', { path: '~/jarvis-smoke' }, context)
+    record('get_folder_size measures a folder', folderSize.ok, folderSize.summary)
+
+    const batch = await executeTool(
+      'move_files',
+      { sources: ['~/jarvis-smoke/archive/notes.txt'], destination: '~/jarvis-smoke/batch' },
+      context
+    )
+    record('move_files moves a batch in one call', batch.ok, batch.summary)
+
+    /* Speech text preparation: the input, not the voice, is most of the polish. */
+    const { speakable, toSentences } = await import('@shared/speech')
+    const spokenPath = speakable('Moved 3 files to ~/Documents/Archive and freed 1.2 GB.')
+    record(
+      'speech text drops paths and expands units',
+      !spokenPath.includes('/') && spokenPath.includes('gigabytes'),
+      spokenPath
+    )
+    record(
+      'speech text splits into sentences for delivery',
+      toSentences('Certainly. Opening Chrome. It is ready.').length === 3
+    )
+
     /* Security layer: these must be refused. */
     const traversal = await executeTool('create_folder', { path: '../../../../etc/jarvis-owned' }, context)
     record('path traversal is blocked', !traversal.ok && traversal.blocked === true, traversal.error)
@@ -111,6 +137,17 @@ export async function runSmoke(window: BrowserWindow): Promise<void> {
 
     const badUrl = await executeTool('open_url', { url: 'javascript:alert(1)' }, context)
     record('non-web URL scheme is blocked', !badUrl.ok && badUrl.blocked === true, badUrl.error)
+
+    const { decide } = await import('../core/permissions')
+    const clipboardVerdict = decide('read_clipboard', {}, settings.get())
+    record('clipboard is gated until permitted', clipboardVerdict.action === 'deny', clipboardVerdict.reason)
+
+    const batchEscape = await executeTool(
+      'move_files',
+      { sources: ['~/jarvis-smoke/batch/notes.txt', '/etc/passwd'], destination: '~/jarvis-smoke/escape' },
+      context
+    )
+    record('a batch move with one bad path moves nothing', !batchEscape.ok && batchEscape.blocked === true, batchEscape.error)
 
     const allowed = await executeTool('execute_command', { command: 'echo', args: ['jarvis'] }, context)
     record('approved command runs', allowed.ok, allowed.summary)
@@ -166,6 +203,12 @@ export async function runSmoke(window: BrowserWindow): Promise<void> {
     await evaluate(`[...document.querySelectorAll('.settings-nav-item')].find((b) => b.textContent === 'Permissions')?.click()`)
     await wait(500)
     record('settings → Permissions renders', await shoot('11-settings-permissions'))
+
+    await evaluate(`window.jarvis.updateSettings({ voice: { engine: 'neural' } })`)
+    await evaluate(`[...document.querySelectorAll('.settings-nav-item')].find((b) => b.textContent === 'Voice')?.click()`)
+    await wait(600)
+    record('settings → Voice renders the neural engine', await shoot('13-settings-voice'))
+    await evaluate(`window.jarvis.updateSettings({ voice: { engine: 'off' } })`)
 
     await evaluate(`document.querySelectorAll('.nav-tab')[0].click()`)
     await wait(500)

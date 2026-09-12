@@ -52,6 +52,27 @@ export const toolSchemas = {
     content: z.string().max(200000).optional().describe('Initial file contents.'),
     overwrite: z.boolean().optional().describe('Replace the file if it already exists.')
   }),
+  move_files: z.object({
+    sources: z.array(pathArg).min(1).max(200).describe('Files or folders to move.'),
+    destination: pathArg.describe('Folder to move them into. Created if it does not exist.')
+  }),
+  close_other_applications: z.object({
+    keep: z.array(z.string().min(1).max(80)).max(20).optional()
+      .describe('Applications to leave running, e.g. ["Discord","Spotify"]. Everything else with a window is closed.')
+  }),
+  empty_trash: z.object({}),
+  find_large_files: z.object({
+    folder: pathArg.optional().describe('Folder to measure. Defaults to the home folder.'),
+    minimum_mb: z.number().min(0).max(1_000_000).optional().describe('Ignore files smaller than this. Defaults to 100 MB.'),
+    limit: z.number().int().min(1).max(100).optional().describe('How many files to return. Defaults to 15.')
+  }),
+  get_folder_size: z.object({
+    path: pathArg.describe('Folder to measure.')
+  }),
+  read_clipboard: z.object({}),
+  write_clipboard: z.object({
+    text: z.string().min(1).max(200000).describe('Text to place on the clipboard.')
+  }),
   move_file: z.object({
     source: pathArg.describe('File or folder to move.'),
     destination: pathArg.describe('Destination path or folder.')
@@ -155,6 +176,13 @@ const meta: Record<ToolName, Meta> = {
   create_folder: { description: 'Create a folder, including any missing parent folders.', risk: 'medium', category: 'filesystem', offline: true },
   create_file: { description: 'Create a file, optionally with contents.', risk: 'medium', category: 'filesystem', offline: true },
   move_file: { description: 'Move a file or folder to another location.', risk: 'medium', category: 'filesystem', offline: true },
+  move_files: { description: 'Move several files or folders into one destination folder in a single step. Prefer this over repeated move_file calls.', risk: 'medium', category: 'filesystem', offline: true },
+  close_other_applications: { description: 'Close every running application except the ones named. Use for requests like "close everything except Discord and Spotify".', risk: 'high', category: 'applications', offline: true },
+  empty_trash: { description: 'Empty the recycle bin or trash. This is permanent and cannot be undone.', risk: 'high', category: 'filesystem', offline: true },
+  find_large_files: { description: 'Find what is using disk space in a folder, largest first, with a per-subfolder breakdown. Use this to answer "what is taking up my storage".', risk: 'low', category: 'filesystem', offline: true },
+  get_folder_size: { description: 'Measure how much space a folder uses, with a breakdown of its largest subfolders.', risk: 'low', category: 'filesystem', offline: true },
+  read_clipboard: { description: 'Read what is currently on the clipboard. May contain sensitive text, so it asks first.', risk: 'medium', category: 'clipboard', offline: true },
+  write_clipboard: { description: 'Put text on the clipboard so the user can paste it.', risk: 'medium', category: 'clipboard', offline: true },
   copy_file: { description: 'Copy a file or folder to another location.', risk: 'medium', category: 'filesystem', offline: true },
   rename_file: { description: 'Rename a file or folder in place.', risk: 'medium', category: 'filesystem', offline: true },
   delete_file: { description: 'Delete files or folders. Goes to the recycle bin unless permanent is set. Always requires the user to confirm.', risk: 'high', category: 'filesystem', offline: true },

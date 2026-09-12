@@ -4,10 +4,12 @@ import type { ToolContext, ToolHandler } from './context'
 import { fail, blocked } from './context'
 import { logger } from '../services/logging'
 
-import { openApplication, closeApplication, listApplications } from './applications'
+import { openApplication, closeApplication, listApplications, closeOtherApplications } from './applications'
+import { readClipboard, writeClipboard } from './clipboard'
+import { findLargeFiles, getFolderSize } from './storage'
 import {
   searchFiles, getFileInfo, readTextFile, createFolder, createFile,
-  moveFile, copyFile, renameFile, deleteFile, openPath
+  moveFile, moveFiles, copyFile, renameFile, deleteFile, openPath, emptyTrash
 } from './filesystem'
 import { getSystemStats, getRunningProcesses, setVolume, openSettings } from './system'
 import { openUrl, webSearch } from './web'
@@ -28,6 +30,13 @@ const HANDLERS: Record<string, ToolHandler> = {
   create_folder: createFolder,
   create_file: createFile,
   move_file: moveFile,
+  move_files: moveFiles,
+  close_other_applications: closeOtherApplications,
+  empty_trash: emptyTrash,
+  find_large_files: findLargeFiles,
+  get_folder_size: getFolderSize,
+  read_clipboard: readClipboard,
+  write_clipboard: writeClipboard,
   copy_file: copyFile,
   rename_file: renameFile,
   delete_file: deleteFile,

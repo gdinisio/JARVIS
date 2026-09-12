@@ -17,6 +17,8 @@ export interface SpeakCallbacks {
 
 class Speaker {
   private failureReported = false
+  /** Invalidates the queue when speech is stopped or replaced. */
+  private token = 0
   private envelopeRaf = 0
   private amplitude = 0
   private speaking = false
@@ -51,33 +53,92 @@ class Speaker {
     })
   }
 
-  /** Picks a calm, natural-sounding default rather than the first voice listed. */
+  /**
+   * Picks the least synthetic voice available.
+   *
+   * Windows 11 ships "Natural" / "Online" neural voices alongside the legacy
+   * SAPI ones, and macOS ships "Premium" and "Enhanced" variants. The gap
+   * between those and the defaults is far larger than any rate or pitch
+   * tuning, so they are ranked first.
+   */
   pickDefaultVoice(voices: SpeechSynthesisVoice[], language = 'en'): SpeechSynthesisVoice | null {
     if (!voices.length) return null
-    const preferred = [
-      /Daniel/i, /Serena/i, /Oliver/i, /Arthur/i, /Google UK English Male/i,
-      /Microsoft (Ryan|Guy|Christopher|Sonia)/i, /Alex/i, /Samantha/i
-    ]
-    const english = voices.filter((v) => v.lang?.toLowerCase().startsWith(language.slice(0, 2)))
+
+    const english = voices.filter((v) => v.lang?.toLowerCase().startsWith(language.slice(0, 2).toLowerCase()))
     const pool = english.length ? english : voices
-    for (const pattern of preferred) {
-      const hit = pool.find((v) => pattern.test(v.name))
-      if (hit) return hit
+
+    const tiers: RegExp[][] = [
+      // Neural voices, whatever the platform calls them.
+      [/\bNatural\b/i, /\bNeural\b/i, /\bPremium\b/i, /\bEnhanced\b/i, /\bOnline\b/i],
+      // Known-good named voices, calm and unhurried.
+      [/Daniel/i, /Arthur/i, /Oliver/i, /Serena/i, /Alex/i, /Samantha/i, /Google UK English/i],
+      [/Microsoft (Ryan|Guy|Christopher|Sonia|Libby|Aria|Jenny)/i]
+    ]
+
+    for (const tier of tiers) {
+      for (const pattern of tier) {
+        const hit = pool.find((voice) => pattern.test(voice.name))
+        if (hit) return hit
+      }
     }
-    return pool.find((v) => v.localService) ?? pool[0]
+    return pool.find((voice) => voice.localService) ?? pool[0]
   }
 
-  speak(text: string, settings: Settings['voice'], callbacks: SpeakCallbacks = {}): boolean {
+  /** Voices ranked for the settings list, best first. */
+  ranked(language = 'en'): SpeechSynthesisVoice[] {
+    const voices = this.voices()
+    const score = (voice: SpeechSynthesisVoice): number => {
+      let value = 0
+      if (/\b(Natural|Neural|Premium|Enhanced|Online)\b/i.test(voice.name)) value += 100
+      if (voice.lang?.toLowerCase().startsWith(language.slice(0, 2).toLowerCase())) value += 50
+      if (voice.default) value += 5
+      return value
+    }
+    return [...voices].sort((a, b) => score(b) - score(a) || a.name.localeCompare(b.name))
+  }
+
+  /**
+   * Speaks a reply.
+   *
+   * `sentences` are queued as separate utterances: the engine shapes intonation
+   * per utterance, so a three-sentence reply delivered as three utterances
+   * sounds spoken, while the same text as one utterance sounds read.
+   */
+  speak(sentences: string[] | string, settings: Settings['voice'], callbacks: SpeakCallbacks = {}): boolean {
     if (!this.supported()) {
       callbacks.onError?.('This system exposes no speech voices to the application.')
       return false
     }
-    const clean = text.replace(/\s+/g, ' ').trim()
-    if (!clean) return false
+    const parts = (Array.isArray(sentences) ? sentences : [sentences])
+      .map((part) => part.replace(/\s+/g, ' ').trim())
+      .filter(Boolean)
+    if (!parts.length) return false
 
     this.stop()
+    const run = ++this.token
 
-    const utterance = new SpeechSynthesisUtterance(clean.slice(0, 1500))
+    let index = 0
+    const speakNext = (): void => {
+      if (run !== this.token) return
+      if (index >= parts.length) {
+        this.finish()
+        callbacks.onEnd?.()
+        return
+      }
+      const part = parts[index++]
+      this.speakOne(part, settings, {
+        onStart: index === 1 ? callbacks.onStart : undefined,
+        onEnd: speakNext,
+        onError: callbacks.onError
+      })
+    }
+    speakNext()
+    return true
+  }
+
+  private speakOne(text: string, settings: Settings['voice'], callbacks: SpeakCallbacks): void {
+    const clean = text.slice(0, 600)
+    const utterance = new SpeechSynthesisUtterance(clean)
     utterance.rate = clamp(settings.rate, 0.5, 2)
     utterance.pitch = clamp(settings.pitch, 0, 2)
     utterance.volume = clamp(settings.volume, 0, 1)
@@ -96,7 +157,7 @@ class Speaker {
       this.amplitude = Math.min(1, 0.55 + Math.random() * 0.45)
     }
     utterance.onend = () => {
-      this.finish()
+      this.amplitude = 0.16
       callbacks.onEnd?.()
     }
     utterance.onerror = (event) => {
@@ -108,6 +169,7 @@ class Speaker {
       }
       // A system with no installed voices fails every utterance. Say so once,
       // with the fix, rather than on every reply.
+      this.token++
       const noVoices = event.error === 'synthesis-failed' || event.error === 'synthesis-unavailable' || !this.voices().length
       if (noVoices) {
         if (!this.failureReported) {
@@ -124,10 +186,10 @@ class Speaker {
     }
 
     window.speechSynthesis.speak(utterance)
-    return true
   }
 
   stop(): void {
+    this.token++
     if (!this.supported()) return
     try {
       window.speechSynthesis.cancel()

@@ -14,6 +14,7 @@ export const IPC = {
     testProvider: 'jarvis:provider:test',
     transcribe: 'jarvis:voice:transcribe',
     speakNative: 'jarvis:voice:speak-native',
+    synthesise: 'jarvis:voice:synthesise',
     stopNativeSpeech: 'jarvis:voice:stop-native',
     runTool: 'jarvis:tool:run',
     runRoutine: 'jarvis:routine:run',

@@ -69,12 +69,18 @@ export function defaultSettings(platform: NodeJS.Platform): Settings {
     },
     voice: {
       enabled: true,
+      // Upgraded to 'neural' automatically on first run when a Groq key is
+      // present; 'system' is the dependency-free default.
       engine: 'system',
       voiceURI: '',
-      rate: 1.02,
-      pitch: 0.92,
+      neuralVoice: 'Fritz-PlayAI',
+      rate: 1,
+      // Shifting pitch away from 1 is what makes a synthetic voice sound
+      // artificially deep rather than calm. Let the voice do the work.
+      pitch: 1,
       volume: 0.9,
-      speakActions: false
+      speakActions: false,
+      chunked: true
     },
     microphone: {
       deviceId: 'default',
@@ -103,7 +109,8 @@ export function defaultSettings(platform: NodeJS.Platform): Settings {
       tools: {},
       screenAccess: false,
       microphoneAccess: true,
-      webAccess: true
+      webAccess: true,
+      clipboardAccess: false
     },
     memory: {
       enabled: true,

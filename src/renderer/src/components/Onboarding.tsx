@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useStore } from '../store/useStore'
 import { greeting } from '../lib/format'
 import { speaker } from '../lib/tts'
+import { prepareSpeech } from '@shared/speech'
 import { listMicrophones } from '../lib/voice'
 import type { JSX } from 'react'
 
@@ -35,7 +36,14 @@ export function Onboarding(): JSX.Element | null {
     setSaving(true)
     if (anthropicKey.trim()) await window.jarvis.setApiKey('ANTHROPIC_API_KEY', anthropicKey.trim())
     if (groqKey.trim()) await window.jarvis.setApiKey('GROQ_API_KEY', groqKey.trim())
-    await window.jarvis.updateSettings({ general: { onboarded: true, demoMode: demo } })
+
+    // With a Groq key available, the neural voice is a large step up on the
+    // operating system's, so start there rather than making it a discovery.
+    const hasGroq = !!(groqKey.trim() || provider?.groq.configured)
+    await window.jarvis.updateSettings({
+      general: { onboarded: true, demoMode: demo },
+      ...(hasGroq && settings.voice.engine === 'system' ? { voice: { engine: 'neural' } } : {})
+    })
     setSaving(false)
   }
 
@@ -130,11 +138,20 @@ export function Onboarding(): JSX.Element | null {
               </button>
               <button
                 className="btn"
-                onClick={() => speaker.speak('Certainly. I am ready when you are.', settings.voice)}
+                onClick={() => {
+                  const { sentences } = prepareSpeech('Certainly. I am ready when you are.')
+                  speaker.speak(sentences, settings.voice)
+                }}
               >
                 Hear my voice
               </button>
             </div>
+            {(groqKey.trim() || provider?.groq.configured) && (
+              <p className="onboarding-note">
+                A Groq key is configured, so JARVIS will use its neural voice — noticeably more natural than the
+                operating system's. You can change this in Settings → Voice.
+              </p>
+            )}
             {microphones.length > 0 && (
               <p className="onboarding-note">{microphones.length} input device{microphones.length === 1 ? '' : 's'} detected.</p>
             )}

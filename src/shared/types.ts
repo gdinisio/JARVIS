@@ -72,6 +72,7 @@ export type RiskLevel = 'low' | 'medium' | 'high'
 export type ToolName =
   | 'open_application'
   | 'close_application'
+  | 'close_other_applications'
   | 'list_applications'
   | 'get_running_processes'
   | 'get_system_stats'
@@ -81,15 +82,21 @@ export type ToolName =
   | 'create_folder'
   | 'create_file'
   | 'move_file'
+  | 'move_files'
   | 'copy_file'
   | 'rename_file'
   | 'delete_file'
+  | 'empty_trash'
+  | 'find_large_files'
+  | 'get_folder_size'
   | 'open_path'
   | 'open_url'
   | 'web_search'
   | 'take_screenshot'
   | 'read_screen'
   | 'set_volume'
+  | 'read_clipboard'
+  | 'write_clipboard'
   | 'execute_command'
   | 'open_settings'
   | 'lock_computer'
@@ -115,7 +122,9 @@ export interface ToolDescriptor {
   description: string
   risk: RiskLevel
   /** Grouping used by the permissions UI. */
-  category: 'applications' | 'filesystem' | 'system' | 'web' | 'screen' | 'terminal' | 'power' | 'memory'
+  category:
+    | 'applications' | 'filesystem' | 'system' | 'web' | 'screen'
+    | 'terminal' | 'power' | 'memory' | 'clipboard'
   /** JSON schema (draft 2020-12 subset) describing the arguments. */
   parameters: JsonSchemaObject
   /** True when the tool works without any network/AI access. */
@@ -302,14 +311,25 @@ export interface Settings {
   }
   voice: {
     enabled: boolean
-    /** 'system' uses OS voices via the renderer; 'native' shells out to say/SAPI. */
-    engine: 'system' | 'native' | 'off'
+    /**
+     * 'neural' synthesises through Groq and sounds markedly more natural;
+     * 'system' uses the OS voices via the renderer; 'native' shells out to
+     * say/SAPI for systems that expose no voice to Chromium.
+     */
+    engine: 'neural' | 'system' | 'native' | 'off'
     voiceURI: string
+    /** Voice name for the neural engine, e.g. "Fritz-PlayAI". */
+    neuralVoice: string
     rate: number
     pitch: number
     volume: number
     /** Speak tool results as well as replies. */
     speakActions: boolean
+    /**
+     * Deliver a reply one sentence at a time. Engines shape prosody per
+     * utterance, so this is most of the difference between read and spoken.
+     */
+    chunked: boolean
   }
   microphone: {
     deviceId: string
@@ -347,6 +367,7 @@ export interface Settings {
     screenAccess: boolean
     microphoneAccess: boolean
     webAccess: boolean
+    clipboardAccess: boolean
   }
   memory: {
     enabled: boolean

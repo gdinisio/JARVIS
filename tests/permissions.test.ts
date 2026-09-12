@@ -84,6 +84,32 @@ describe('decide', () => {
     expect(decide('remember', { key: 'a', value: 'b' }, forgetful).action).toBe('deny')
   })
 
+  it('always confirms closing everything, and names what survives', () => {
+    const verdict = decide('close_other_applications', { keep: ['Discord', 'Spotify'] }, settings())
+    expect(verdict.action).toBe('confirm')
+    expect(verdict.confirm?.risk).toBe('high')
+    expect(verdict.confirm?.body).toContain('Discord and Spotify')
+  })
+
+  it('warns that emptying the trash cannot be undone', () => {
+    const verdict = decide('empty_trash', {}, settings())
+    expect(verdict.action).toBe('confirm')
+    expect(verdict.confirm?.body).toMatch(/cannot be undone/i)
+  })
+
+  it('denies the clipboard until it is switched on', () => {
+    expect(decide('read_clipboard', {}, settings()).action).toBe('deny')
+    const allowed = settings((s) => {
+      s.permissions.clipboardAccess = true
+    })
+    expect(decide('read_clipboard', {}, allowed).action).toBe('confirm')
+  })
+
+  it('treats measuring storage as read-only', () => {
+    expect(decide('find_large_files', { folder: '~' }, settings()).action).toBe('allow')
+    expect(decide('get_folder_size', { path: '~' }, settings()).action).toBe('allow')
+  })
+
   it('rejects a tool that does not exist', () => {
     const verdict = decide('rm_rf_everything', {}, settings())
     expect(verdict.action).toBe('deny')

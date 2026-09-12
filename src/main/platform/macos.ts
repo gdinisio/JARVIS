@@ -253,6 +253,53 @@ return ((output volume of s) as text) & ";" & ((output muted of s) as text)`
     }
   }
 
+  async emptyTrash(): Promise<{ summary: string }> {
+    const result = await applescript('tell application "Finder" to empty trash')
+    if (result.code !== 0) {
+      throw new Error('macOS refused the request. Check Automation permissions for Finder.')
+    }
+    return { summary: 'The trash is empty.' }
+  }
+
+  /**
+   * Quits everything with a visible presence except the applications named.
+   *
+   * Uses System Events' list of windowed processes, so background daemons and
+   * the shell are never candidates.
+   */
+  async closeOtherApplications(keep: string[]): Promise<{ closed: string[]; kept: string[] }> {
+    const resolved = await Promise.all(keep.map((name) => this.resolveApplication(name)))
+    const keepNames = new Set(
+      [...keep, ...resolved.map((app) => app?.name ?? '')].map((name) => name.trim().toLowerCase()).filter(Boolean)
+    )
+
+    const listed = await applescript(
+      `tell application "System Events" to get name of every process whose background only is false`,
+      {},
+      { timeoutMs: 15_000 }
+    )
+    const running = listed.stdout.split(',').map((name) => name.trim()).filter(Boolean)
+
+    const closed: string[] = []
+    const kept: string[] = []
+    for (const name of running) {
+      const lower = name.toLowerCase()
+      if (keepNames.has(lower) || PROTECTED_PROCESSES.has(lower) || !SAFE_NAME.test(name)) {
+        kept.push(name)
+        continue
+      }
+      const result = await applescript(
+        `set appName to system attribute "JARVIS_APP"
+tell application appName to quit`,
+        { app: name },
+        { timeoutMs: 12_000 }
+      )
+      if (result.code === 0) closed.push(name)
+      else kept.push(name)
+    }
+    return { closed, kept }
+  }
+
   async screenshot(target: string): Promise<string> {
     const result = await run('screencapture', ['-x', '-t', 'png', target], { timeoutMs: 15_000 })
     if (result.code === 0) return target
@@ -295,6 +342,9 @@ return ((output volume of s) as text) & ";" & ((output muted of s) as text)`
     return hits.sort((a, b) => b.modified - a.modified)
   }
 }
+
+/** Never quit: the shell, the window server, and JARVIS itself. */
+const PROTECTED_PROCESSES = new Set(['finder', 'dock', 'systemuiserver', 'loginwindow', 'windowserver', 'jarvis', 'electron'])
 
 function firstLine(text: string): string {
   return text.split('\n').map((l) => l.trim()).filter(Boolean)[0] ?? ''

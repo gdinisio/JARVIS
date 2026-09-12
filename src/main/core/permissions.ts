@@ -94,6 +94,13 @@ function categoryGate(tool: ToolDescriptor, settings: Settings): PermissionDecis
       reason: 'Screen access is switched off. Enable it in Settings → Permissions.'
     }
   }
+  if (tool.category === 'clipboard' && !settings.permissions.clipboardAccess) {
+    return {
+      action: 'deny',
+      risk: tool.risk,
+      reason: 'Clipboard access is switched off. Enable it in Settings → Permissions.'
+    }
+  }
   if (tool.category === 'web' && !settings.permissions.webAccess) {
     return { action: 'deny', risk: tool.risk, reason: 'Web access is switched off in Settings → Permissions.' }
   }
@@ -126,6 +133,32 @@ function buildConfirm(tool: ToolDescriptor, args: Record<string, unknown>, descr
       tool: tool.name,
       details,
       confirmLabel: args.permanent ? 'Delete permanently' : 'Delete',
+      cancelLabel: 'Cancel'
+    }
+  }
+
+  if (tool.name === 'close_other_applications') {
+    const keep = Array.isArray(args.keep) ? (args.keep as string[]) : []
+    return {
+      title: 'Close other applications',
+      body: keep.length
+        ? `Everything except ${keep.join(' and ')} will be asked to quit. Unsaved work in those applications may be lost.`
+        : 'Every open application will be asked to quit. Unsaved work may be lost.',
+      risk: 'high',
+      tool: tool.name,
+      details: keep.length ? keep.map((name) => `Keeping: ${name}`) : ['Keeping: nothing'],
+      confirmLabel: 'Close them',
+      cancelLabel: 'Cancel'
+    }
+  }
+
+  if (tool.name === 'empty_trash') {
+    return {
+      title: 'Empty the trash',
+      body: `Everything in the ${process.platform === 'win32' ? 'recycle bin' : 'trash'} will be deleted permanently. This cannot be undone.`,
+      risk: 'high',
+      tool: tool.name,
+      confirmLabel: 'Empty it',
       cancelLabel: 'Cancel'
     }
   }
@@ -192,6 +225,13 @@ export function describeAction(toolName: string, args: Record<string, unknown>):
     case 'create_folder': return `Create the folder ${String(a.path ?? '')}.`
     case 'create_file': return `Create the file ${String(a.path ?? '')}.`
     case 'move_file': return `Move ${String(a.source ?? '')} to ${String(a.destination ?? '')}.`
+    case 'move_files': return `Move ${Array.isArray(a.sources) ? a.sources.length : 0} item(s) to ${String(a.destination ?? '')}.`
+    case 'close_other_applications': return `Close everything except ${Array.isArray(a.keep) && a.keep.length ? (a.keep as string[]).join(' and ') : 'nothing'}.`
+    case 'empty_trash': return 'Empty the trash permanently.'
+    case 'find_large_files': return `Measure what is using space in ${String(a.folder ?? 'your home folder')}.`
+    case 'get_folder_size': return `Measure the size of ${String(a.path ?? '')}.`
+    case 'read_clipboard': return 'Read the clipboard.'
+    case 'write_clipboard': return 'Put text on the clipboard.'
     case 'copy_file': return `Copy ${String(a.source ?? '')} to ${String(a.destination ?? '')}.`
     case 'rename_file': return `Rename ${String(a.path ?? '')} to ${String(a.new_name ?? '')}.`
     case 'delete_file': return `Delete ${Array.isArray(a.paths) ? a.paths.length : 0} item(s).`

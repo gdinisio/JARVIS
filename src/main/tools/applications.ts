@@ -74,6 +74,42 @@ export const listApplications: ToolHandler = async (args): Promise<ToolResult> =
   }
 }
 
+/**
+ * Closes everything except the applications named.
+ *
+ * "Close everything except Discord and Spotify" is one instruction, and doing
+ * it as one call means one confirmation rather than a prompt per application
+ * — and one consistent list of what the platform refuses to touch.
+ */
+export const closeOtherApplications: ToolHandler = async (args) => {
+  const raw = Array.isArray(args.keep) ? (args.keep as unknown[]) : []
+  const keep: string[] = []
+  for (const entry of raw) {
+    const resolved = resolvePreference(String(entry))
+    const check = validateAppName(resolved)
+    if (!check.ok) return blocked(`${check.reason} Nothing was closed.`)
+    keep.push(check.name)
+  }
+
+  const adapter = platform()
+  if (!adapter.closeOtherApplications) {
+    return fail('Closing everything at once is not supported on this system.')
+  }
+
+  try {
+    const result = await adapter.closeOtherApplications(keep)
+    if (!result.closed.length) {
+      return ok('Nothing needed closing.', result)
+    }
+    return ok(
+      `Closed ${result.closed.length} application${result.closed.length === 1 ? '' : 's'}${keep.length ? `, keeping ${keep.join(' and ')}` : ''}.`,
+      result
+    )
+  } catch (error) {
+    return fail(cleanMessage(error) || 'Applications could not be closed.')
+  }
+}
+
 function cleanMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error)
   return message.length > 200 ? `${message.slice(0, 197)}…` : message

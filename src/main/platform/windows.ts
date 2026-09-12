@@ -294,10 +294,62 @@ export class WindowsAdapter implements PlatformAdapter {
     return progId
   }
 
+  async emptyTrash(): Promise<{ summary: string }> {
+    const result = await powershell(
+      `$ErrorActionPreference='Stop'; Clear-RecycleBin -Force -ErrorAction Stop; exit 0`,
+      {},
+      { timeoutMs: 30_000 }
+    )
+    // An already-empty bin reports an error; that is not a failure.
+    if (result.code !== 0 && !/empty/i.test(result.stderr)) {
+      throw new Error(cleanError(result.stderr) || 'The recycle bin could not be emptied.')
+    }
+    return { summary: 'The recycle bin is empty.' }
+  }
+
+  /**
+   * Closes everything the user is running except the applications named.
+   *
+   * Only windowed applications owned by this session are considered; system
+   * and shell processes are never touched.
+   */
+  async closeOtherApplications(keep: string[]): Promise<{ closed: string[]; kept: string[] }> {
+    const keepNames = new Set(
+      keep.flatMap((name) => processNames(name)).map((name) => name.toLowerCase().replace(/\.exe$/, ''))
+    )
+    const listed = await powershell(
+      `Get-Process | Where-Object { $_.MainWindowTitle -ne '' } | Select-Object -ExpandProperty ProcessName -Unique`,
+      {},
+      { timeoutMs: 15_000 }
+    )
+    const running = listed.stdout.split('\n').map((line) => line.trim()).filter(Boolean)
+
+    const closed: string[] = []
+    const kept: string[] = []
+    for (const name of running) {
+      const lower = name.toLowerCase()
+      if (keepNames.has(lower) || PROTECTED_PROCESSES.has(lower) || !SAFE_NAME.test(name)) {
+        kept.push(name)
+        continue
+      }
+      const result = await run('taskkill.exe', ['/IM', `${name}.exe`, '/T'], { timeoutMs: 8000 })
+      if (result.code === 0) closed.push(name)
+      else kept.push(name)
+    }
+    return { closed, kept }
+  }
+
   screenshot(target: string): Promise<string> {
     return captureScreenToFile(target)
   }
 }
+
+/** Never closed: the shell, the desktop, and JARVIS itself. */
+const PROTECTED_PROCESSES = new Set([
+  'explorer', 'dwm', 'csrss', 'winlogon', 'services', 'lsass', 'svchost', 'system',
+  'taskmgr', 'searchhost', 'shellexperiencehost', 'startmenuexperiencehost',
+  'textinputhost', 'applicationframehost', 'systemsettings', 'jarvis', 'electron'
+])
 
 function processNames(name: string): string[] {
   const key = name.trim().toLowerCase().replace(/\.exe$/, '')

@@ -1,5 +1,4 @@
 import { describe, it, expect } from 'vitest'
-// @ts-expect-error - build-time script, run by plain node, so it has no types
 import { classifyFailure, riskyLocation } from '../scripts/lib/electron-diagnosis.mjs'
 
 /**
