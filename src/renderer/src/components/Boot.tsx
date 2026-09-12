@@ -85,7 +85,7 @@ export function Boot(): JSX.Element | null {
    * sequence that always says READY would be set dressing.
    */
   const subsystems = useMemo<Subsystem[]>(() => {
-    const engineReady = !!(provider?.claude.configured || provider?.groq.configured)
+    const engineReady = Object.values(provider?.providers ?? {}).some((entry) => entry.configured)
     const voiceReady = settings?.voice.enabled !== false && settings?.voice.engine !== 'off'
     const network = provider?.online !== false
     return [

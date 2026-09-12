@@ -61,7 +61,7 @@ describe('speakable', () => {
 
   it('says a web address as its host, not its path', () => {
     expect(speakable('see https://example.com/docs/page for details')).toBe('see example.com for details')
-    expect(speakable('open https://www.github.com/anthropics')).toBe('open github.com')
+    expect(speakable('open https://www.github.com/gdinisio/JARVIS')).toBe('open github.com')
   })
 
   it('turns an arrow into a pause rather than running clauses together', () => {

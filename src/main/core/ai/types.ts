@@ -62,8 +62,8 @@ export class ProviderError extends Error {
   /** Message suitable for speaking aloud. */
   spoken(): string {
     switch (this.kind) {
-      case 'auth': return `My ${this.provider === 'claude' ? 'Claude' : 'Groq'} key was rejected. Check it in Settings.`
-      case 'rate-limit': return 'I am being rate limited. Give me a moment.'
+      case 'auth': return 'That API key was rejected. Check it in Settings.'
+      case 'rate-limit': return 'I have hit the free tier limit. Give me a moment, or add another provider.'
       case 'network': return 'I cannot reach the network right now.'
       case 'overloaded': return 'The model is overloaded. I will try the alternative.'
       case 'invalid': return 'The model returned something I could not use.'

@@ -12,6 +12,7 @@ export const IPC = {
     setApiKey: 'jarvis:keys:set',
     keyStatus: 'jarvis:keys:status',
     testProvider: 'jarvis:provider:test',
+    listModels: 'jarvis:provider:models',
     transcribe: 'jarvis:voice:transcribe',
     speakNative: 'jarvis:voice:speak-native',
     synthesise: 'jarvis:voice:synthesise',

@@ -38,12 +38,11 @@ export function TitleBar(): JSX.Element {
   }, [])
 
   // The DEMO MODE chip carries that state; this one always names the engine.
+  const configuredCount = Object.values(provider?.providers ?? {}).filter((entry) => entry.configured).length
   const activeProvider = provider?.active
-    ? provider.active === 'claude'
-      ? 'CLAUDE'
-      : 'GROQ'
-    : provider?.claude.configured || provider?.groq.configured
-      ? provider.mode.toUpperCase()
+    ? (provider.providers[provider.active]?.name ?? provider.active).toUpperCase()
+    : configuredCount > 0
+      ? provider!.mode.toUpperCase()
       : 'NO KEY'
 
   return (

@@ -3,6 +3,7 @@ import { useStore } from '../store/useStore'
 import { greeting } from '../lib/format'
 import { speaker } from '../lib/tts'
 import { prepareSpeech } from '@shared/speech'
+import { PROVIDERS } from '@shared/providers'
 import { listMicrophones } from '../lib/voice'
 import type { JSX } from 'react'
 
@@ -15,13 +16,15 @@ import type { JSX } from 'react'
  */
 const STEPS = ['Welcome', 'AI provider', 'Voice', 'Permissions', 'Ready'] as const
 
+/** Providers that need a key, in catalogue order. Ollama needs none. */
+const KEYED_PROVIDERS = PROVIDERS.filter((provider) => provider.requiresKey && provider.id !== 'custom')
+
 export function Onboarding(): JSX.Element | null {
   const settings = useStore((s) => s.settings)
   const booted = useStore((s) => s.booted)
   const provider = useStore((s) => s.provider)
   const [step, setStep] = useState(0)
-  const [anthropicKey, setAnthropicKey] = useState('')
-  const [groqKey, setGroqKey] = useState('')
+  const [keys, setKeys] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState(false)
   const [microphones, setMicrophones] = useState<Array<{ deviceId: string; label: string }>>([])
   const [micRequested, setMicRequested] = useState(false)
@@ -34,12 +37,13 @@ export function Onboarding(): JSX.Element | null {
 
   const finish = async (demo: boolean) => {
     setSaving(true)
-    if (anthropicKey.trim()) await window.jarvis.setApiKey('ANTHROPIC_API_KEY', anthropicKey.trim())
-    if (groqKey.trim()) await window.jarvis.setApiKey('GROQ_API_KEY', groqKey.trim())
+    for (const [name, value] of Object.entries(keys)) {
+      if (value.trim()) await window.jarvis.setApiKey(name, value.trim())
+    }
 
     // With a Groq key available, the neural voice is a large step up on the
     // operating system's, so start there rather than making it a discovery.
-    const hasGroq = !!(groqKey.trim() || provider?.groq.configured)
+    const hasGroq = !!(keys.GROQ_API_KEY?.trim() || provider?.providers.groq?.configured)
     await window.jarvis.updateSettings({
       general: { onboarded: true, demoMode: demo },
       ...(hasGroq && settings.voice.engine === 'system' ? { voice: { engine: 'neural' } } : {})
@@ -58,7 +62,9 @@ export function Onboarding(): JSX.Element | null {
     }
   }
 
-  const hasKey = provider?.claude.configured || provider?.groq.configured || anthropicKey.trim() || groqKey.trim()
+  const hasKey =
+    Object.values(provider?.providers ?? {}).some((entry) => entry.configured) ||
+    Object.values(keys).some((value) => value.trim())
 
   return (
     <div className="onboarding">
@@ -96,34 +102,44 @@ export function Onboarding(): JSX.Element | null {
           <div className="onboarding-body">
             <h1 className="onboarding-title">Which mind should answer?</h1>
             <p>
-              Claude handles reasoning, planning and anything visual. Groq handles quick exchanges and speech recognition.
-              Configure either or both — with both, JARVIS routes each request to the one that suits it.
+              Every provider below is free — a key you get with an email address, no payment method. Add one or
+              several; with more than one, JARVIS sends each request to whichever suits it.
             </p>
-            <label className="field-row">
-              <span className="label">Anthropic API key</span>
-              <input
-                className="field mono"
-                type="password"
-                placeholder={provider?.claude.configured ? 'Already configured' : 'sk-ant-…'}
-                value={anthropicKey}
-                onChange={(event) => setAnthropicKey(event.target.value)}
-                autoComplete="off"
-              />
-            </label>
-            <label className="field-row">
-              <span className="label">Groq API key</span>
-              <input
-                className="field mono"
-                type="password"
-                placeholder={provider?.groq.configured ? 'Already configured' : 'gsk_…'}
-                value={groqKey}
-                onChange={(event) => setGroqKey(event.target.value)}
-                autoComplete="off"
-              />
-            </label>
+
+            {KEYED_PROVIDERS.map((entry) => (
+              <label className="field-row" key={entry.id}>
+                <span className="label">
+                  {entry.name}
+                  {entry.id === 'groq' && ' — also does speech'}
+                  {entry.id === 'gemini' && ' — also reads the screen'}
+                </span>
+                <input
+                  className="field mono"
+                  type="password"
+                  placeholder={provider?.providers[entry.id]?.configured ? 'Already configured' : `Paste a ${entry.name} key`}
+                  value={keys[entry.envVar] ?? ''}
+                  onChange={(event) => setKeys((current) => ({ ...current, [entry.envVar]: event.target.value }))}
+                  autoComplete="off"
+                />
+                <span className="onboarding-provider-note">
+                  {entry.freeTier}{' '}
+                  <button
+                    className="link-button"
+                    onClick={(event) => {
+                      event.preventDefault()
+                      void window.jarvis.openExternal(entry.signupUrl)
+                    }}
+                  >
+                    Get a key
+                  </button>
+                </span>
+              </label>
+            ))}
+
             <p className="onboarding-note">
-              Keys are stored with your operating system's encrypted credential storage and never reach the interface layer.
-              You can also put them in a <span className="mono">.env</span> file next to the application.
+              Prefer nothing to leave this machine? Install <span className="mono">Ollama</span> and JARVIS will use it
+              with no key and no network at all. Keys are stored in your operating system's encrypted credential storage
+              and never reach the interface layer.
             </p>
           </div>
         )}
@@ -146,7 +162,7 @@ export function Onboarding(): JSX.Element | null {
                 Hear my voice
               </button>
             </div>
-            {(groqKey.trim() || provider?.groq.configured) && (
+            {(keys.GROQ_API_KEY?.trim() || provider?.providers.groq?.configured) && (
               <p className="onboarding-note">
                 A Groq key is configured, so JARVIS will use its neural voice — noticeably more natural than the
                 operating system's. You can change this in Settings → Voice.

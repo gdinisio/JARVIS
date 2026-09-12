@@ -60,8 +60,9 @@ export function defaultSettings(platform: NodeJS.Platform): Settings {
     },
     ai: {
       provider: 'auto',
-      claudeModel: 'claude-sonnet-5',
-      groqModel: 'llama-3.3-70b-versatile',
+      // Empty means "use the catalogue default for that provider".
+      models: {},
+      baseUrls: {},
       temperature: 0.3,
       maxTokens: 1600,
       autoFallback: true,

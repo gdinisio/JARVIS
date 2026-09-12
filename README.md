@@ -54,6 +54,7 @@ and decides whether it runs, needs confirmation, or is refused.
 | Interface | **React + Vite** | Fast HMR during development; the interface is state-driven, not document-driven. |
 | Core visual | **Canvas 2D** | One animation loop, no DOM churn, no WebGL context to lose. Three.js would cost more than the design needs. |
 | Audio | **Web Audio + MediaRecorder** | Real analyser data drives the core's waveform, rather than a decorative animation. |
+| Models | **Free tiers only**, behind one provider interface | Groq, Google Gemini, OpenRouter and a local Ollama all speak the OpenAI chat API, so a provider is data — a URL, a key and a model list — not code. Adding one is a row in a table. |
 | Speech in | **Groq Whisper** (`whisper-large-v3-turbo`) | Latency is what you feel in a voice assistant, and Groq is the fastest path from audio to text. |
 | Speech out | **Groq neural TTS**, with OS voices as fallback | The operating system's voices are unmistakably synthetic. Neural audio also passes through an analyser on its way to the speakers, so the core's waveform is driven by real speech. |
 | Metrics | **systeminformation** | One cross-platform API for CPU, memory, GPU, disks, network and battery. |
@@ -65,7 +66,7 @@ and decides whether it runs, needs confirmation, or is refused.
 
 ```
                     Voice ─┐
-                           ├──► Engine ──► AI provider (Claude │ Groq)
+                           ├──► Engine ──► AI provider (free tier, by role)
                     Text ──┘       │              │
                                    │              ▼
                                    │        structured tool call
@@ -93,7 +94,7 @@ Nothing above the platform layer knows which operating system it is running on.
 src/
   main/                    privileged process — holds every secret
     core/
-      ai/                  AIProvider, ClaudeProvider, GroqProvider, AUTO router
+      ai/                  one OpenAI-compatible provider, AUTO router by role
       engine.ts            request loop, tool calls, plans, routines
       permissions.ts       risk classification and the confirmation gate
       memory.ts            long-term preferences
@@ -110,7 +111,7 @@ src/
     windows/               window, tray, global hotkeys
   preload/                 the only bridge; a fixed list of channels
   renderer/                interface — never sees a key, never touches the OS
-  shared/                  types, defaults and IPC names used by both sides
+  shared/                  types, defaults, IPC names and the provider catalogue
 tests/                     172 tests, security paths first
 ```
 
@@ -187,6 +188,43 @@ npm config set https-proxy http://your-proxy:port
 set ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/
 node node_modules/electron/install.js
 ```
+
+## Providers — all free
+
+JARVIS uses no paid API. Every provider below gives you a key for an email
+address with no payment method, or needs no key at all. Configure one or
+several: with more than one, each request goes to whichever suits it, and a
+provider that hits its daily cap falls back to the next.
+
+| Provider | What it is for | The free tier, honestly |
+|---|---|---|
+| **Groq** | The fast path, plus **speech recognition and the neural voice** | ~30 requests a minute, no card. Start here — it is the only provider that also hears and speaks. [Get a key](https://console.groq.com/keys) |
+| **Google Gemini** | Reasoning, planning and **reading your screen** | Free from AI Studio, no card, very large context. The only dependable free option that can see. [Get a key](https://aistudio.google.com/apikey) |
+| **OpenRouter** | Variety and fallback | Genuinely free models, no card — but roughly 50 requests a day, which makes it a better backup than a main engine. [Get a key](https://openrouter.ai/keys) |
+| **Ollama** | Everything local | No key, no account, no network, no limits. You supply the hardware. Detected automatically when it is running. [Install](https://ollama.com/download) |
+| **Custom** | Anything else | Any other OpenAI-compatible server — self-hosted, a company gateway, or a provider not listed here. |
+
+<img src="docs/images/providers.png" alt="Settings showing the free providers, their limits and capabilities" width="100%">
+
+Adding a provider is a row in `src/shared/providers.ts`: a base URL, a key
+name, a model list and a ranking per role. There is no per-provider code.
+
+**Deliberately excluded:** services whose "free tier" needs a card. Cerebras,
+for one, ended its no-card tier in August 2026 — you can still point the Custom
+endpoint at it, but it is not presented here as free.
+
+### How AUTO chooses
+
+Each request is scored and given a role, and the best *available* provider for
+that role wins:
+
+- **fast** — short, obvious commands ("open Chrome", "volume 40"). Latency is
+  what you notice, so Groq leads.
+- **reasoning** — multi-step, ambiguous or consequential requests, and anything
+  several tool calls deep. Gemini leads.
+- **vision** — anything about what is on screen. Only providers whose selected
+  model accepts images are eligible; if none is, JARVIS says so rather than
+  guessing at a black rectangle.
 
 **No keys?** JARVIS still runs. It falls back to offline command matching for
 direct instructions ("open Chrome", "what's my CPU usage", "create a folder
@@ -302,7 +340,8 @@ Settings → Permissions.
 
 ## Privacy
 
-- Requests go to the provider you configure (Anthropic or Groq) with the system
+- Requests go to the free provider you configure (Groq, Gemini, OpenRouter, or a
+  local Ollama that sends nothing anywhere) with the system
   metrics and tool results needed to answer them. Voice audio goes to Groq for
   transcription. Nothing else is transmitted.
 - No telemetry, no analytics, no account.

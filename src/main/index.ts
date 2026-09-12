@@ -66,6 +66,8 @@ function bootstrap(): void {
     void monitoring.start()
     proactive.start()
     providers.setOnline(net.isOnline())
+    // A local backend may or may not be running; find out rather than assume.
+    void providers.startLocalDiscovery()
     providers.broadcast()
 
     // Network and power transitions matter to a voice assistant.
@@ -99,6 +101,7 @@ function bootstrap(): void {
   app.on('before-quit', () => {
     markQuitting()
     unregisterHotkeys()
+    providers.stopLocalDiscovery()
     destroyTray()
     monitoring.stop()
     settings.flush()

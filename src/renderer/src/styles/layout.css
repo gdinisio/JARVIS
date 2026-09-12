@@ -1520,6 +1520,63 @@ select.field option { background: #0b0d13; color: var(--text); }
 .key-title { font-size: 13px; font-weight: 500; }
 .key-sub { font-size: 9px; margin-top: 2px; }
 .key-entry { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 6px; }
+.key-title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+/* Small tags naming what a provider can do, beside its name. */
+.cap-tag {
+  display: inline-flex;
+  align-items: center;
+  height: 16px;
+  padding: 0 6px;
+  border-radius: 3px;
+  border: 1px solid var(--hairline-strong);
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.cap-tag.local {
+  border-color: rgba(31, 191, 117, 0.32);
+  color: var(--jade);
+}
+
+.key-free {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--text-faint);
+}
+
+.link-button {
+  font-size: 11px;
+  color: var(--accent-bright);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: border-color var(--fast) var(--ease);
+}
+.link-button:hover {
+  border-bottom-color: var(--accent-line);
+}
+
+.key-link {
+  align-self: flex-start;
+  margin-top: 2px;
+}
+
+.onboarding-provider-note {
+  margin-top: 4px;
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--text-ghost);
+}
+
 .key-result {
   font-size: 11px;
   color: var(--text-dim);

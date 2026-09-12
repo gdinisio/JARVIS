@@ -230,7 +230,7 @@ describe('settings merge', () => {
     const base = defaultSettings('win32')
     const merged = mergeSettings(base, { ai: { temperature: 0.9 } })
     expect(merged.ai.temperature).toBe(0.9)
-    expect(merged.ai.claudeModel).toBe(base.ai.claudeModel)
+    expect(merged.ai.maxToolCalls).toBe(base.ai.maxToolCalls)
     expect(merged.appearance.accent).toBe(base.appearance.accent)
   })
 

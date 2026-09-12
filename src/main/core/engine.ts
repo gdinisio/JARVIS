@@ -210,14 +210,14 @@ export class Engine {
         needsVision: needsVision && turn === 0
       })
       if (!decision.provider) {
-        throw new ProviderError('No AI provider is configured. Add a key in Settings → AI.', 'auth', 'claude', false)
+        throw new ProviderError('No AI provider is configured. Add a free key in Settings → AI.', 'auth', 'groq', false)
       }
 
       usedProvider = decision.provider
       providers.broadcast(decision.provider)
       if (turn === 0) {
         logger.info('engine', 'Routed request.', { provider: decision.provider, reason: decision.reason, complexity: decision.complexity })
-        bus.say('JARVIS', `Analysing request — ${decision.provider === 'claude' ? 'Claude' : 'Groq'} engaged.`, { detail: decision.reason })
+        bus.say('JARVIS', `Analysing request — ${providers.get(decision.provider).name} engaged.`, { detail: decision.reason })
       }
 
       let response: AiResponse
@@ -320,7 +320,7 @@ export class Engine {
       if (!canFallback) throw normalised
 
       logger.warn('engine', 'Primary provider failed; falling back.', { from: primary, to: fallback, kind: normalised.kind })
-      bus.say('SYSTEM', `${primary === 'claude' ? 'Claude' : 'Groq'} is unavailable. Switching to ${fallback === 'claude' ? 'Claude' : 'Groq'}.`, { level: 'warn' })
+      bus.say('SYSTEM', `${providers.get(primary).name} is unavailable. Switching to ${providers.get(fallback).name}.`, { level: 'warn' })
       providers.broadcast(fallback)
       return providers.get(fallback!).complete({ ...request, system: this.systemPrompt(fallback!) })
     }
@@ -590,7 +590,7 @@ export class Engine {
     }
 
     const message =
-      'I have no AI provider configured, so I can only handle direct commands. Add an Anthropic or Groq key in Settings → AI.'
+      'I have no AI provider configured, so I can only handle direct commands. Add a free Groq or Gemini key in Settings → AI.'
     bus.say('ERROR', message, { level: 'error' })
     this.reply(message)
     this.finish('error')

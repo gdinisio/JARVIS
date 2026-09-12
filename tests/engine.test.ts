@@ -2,7 +2,8 @@ import { describe, it, expect, beforeEach, afterAll, vi } from 'vitest'
 import { mkdtempSync, rmSync, writeFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { EngineEvent, ProviderId } from '../src/shared/types'
+import type { EngineEvent } from '../src/shared/types'
+import type { ProviderId } from '../src/shared/providers'
 import type { AiRequest, AiResponse } from '../src/main/core/ai/types'
 import { ProviderError } from '../src/main/core/ai/types'
 
@@ -18,9 +19,9 @@ interface Scripted {
   throws?: ProviderError
 }
 
-const scripts: Record<ProviderId, Scripted[]> = { claude: [], groq: [] }
+const scripts: Partial<Record<ProviderId, Scripted[]>> = { gemini: [], groq: [] }
 const calls: Array<{ provider: ProviderId; request: AiRequest }> = []
-let routeTo: ProviderId = 'claude'
+let routeTo: ProviderId = 'gemini'
 let fallbackTo: ProviderId | null = 'groq'
 
 function makeProvider(id: ProviderId) {
@@ -29,10 +30,10 @@ function makeProvider(id: ProviderId) {
     name: id,
     isConfigured: () => true,
     model: () => `${id}-test`,
-    supportsVision: () => id === 'claude',
+    supportsVision: () => id === 'gemini',
     complete: async (request: AiRequest): Promise<AiResponse> => {
       calls.push({ provider: id, request })
-      const next = scripts[id].shift()
+      const next = scripts[id]?.shift()
       if (!next) return { text: 'Done.', toolCalls: [], provider: id, model: `${id}-test` }
       if (next.throws) throw next.throws
       return {
@@ -47,13 +48,13 @@ function makeProvider(id: ProviderId) {
 }
 
 vi.mock('../src/main/core/ai', () => {
-  const claude = makeProvider('claude')
+  const gemini = makeProvider('gemini')
   const groq = makeProvider('groq')
   return {
     providers: {
-      claude,
+      gemini,
       groq,
-      get: (id: ProviderId) => (id === 'claude' ? claude : groq),
+      get: (id: ProviderId) => (id === 'gemini' ? gemini : groq),
       anyConfigured: () => true,
       configuredCount: () => 2,
       isOnline: () => true,
@@ -62,6 +63,10 @@ vi.mock('../src/main/core/ai', () => {
       markFailure: () => undefined,
       markSuccess: () => undefined,
       status: () => ({}),
+      transcriber: () => null,
+      synthesiser: () => null,
+      all: () => [gemini, groq],
+      configured: () => [gemini, groq],
       broadcast: () => undefined
     }
   }
@@ -85,9 +90,9 @@ afterAll(() => {
 beforeEach(() => {
   events = []
   calls.length = 0
-  scripts.claude = []
+  scripts.gemini = []
   scripts.groq = []
-  routeTo = 'claude'
+  routeTo = 'gemini'
   fallbackTo = 'groq'
   engine.clearConversation()
   history.clear()
@@ -109,14 +114,14 @@ async function settle(ms = 60): Promise<void> {
 
 describe('engine — plain replies', () => {
   it('answers, records history once, and returns to idle', async () => {
-    scripts.claude.push({ text: 'CPU is at 28 percent.' })
+    scripts.gemini!.push({ text: 'CPU is at 28 percent.' })
     await engine.submit({ text: 'how is my system', source: 'text' })
     await settle()
 
     const messages = of('message')
     expect(messages).toHaveLength(1)
     expect(messages[0].message.text).toBe('CPU is at 28 percent.')
-    expect(messages[0].message.provider).toBe('claude')
+    expect(messages[0].message.provider).toBe('gemini')
 
     expect(history.list()).toHaveLength(1)
     expect(history.list()[0].outcome).toBe('success')
@@ -128,11 +133,11 @@ describe('engine — plain replies', () => {
   })
 
   it('carries the conversation forward between requests', async () => {
-    scripts.claude.push({ text: 'Opening Chrome.' })
+    scripts.gemini!.push({ text: 'Opening Chrome.' })
     await engine.submit({ text: 'open chrome', source: 'text' })
     await settle()
 
-    scripts.claude.push({ text: 'Searching in Chrome.' })
+    scripts.gemini!.push({ text: 'Searching in Chrome.' })
     await engine.submit({ text: 'search for tesla', source: 'text' })
     await settle()
 
@@ -145,7 +150,7 @@ describe('engine — plain replies', () => {
   })
 
   it('publishes the tool catalogue and a system prompt to the model', async () => {
-    scripts.claude.push({ text: 'Done.' })
+    scripts.gemini!.push({ text: 'Done.' })
     await engine.submit({ text: 'hello', source: 'text' })
     await settle()
 
@@ -158,8 +163,8 @@ describe('engine — plain replies', () => {
 
 describe('engine — tool calls', () => {
   it('executes a low-risk tool and feeds the result back to the model', async () => {
-    scripts.claude.push({ toolCalls: [{ id: 't1', name: 'get_system_stats', args: {} }] })
-    scripts.claude.push({ text: 'CPU is fine.' })
+    scripts.gemini!.push({ toolCalls: [{ id: 't1', name: 'get_system_stats', args: {} }] })
+    scripts.gemini!.push({ text: 'CPU is fine.' })
 
     await engine.submit({ text: 'how is my system', source: 'text' })
     await settle(400)
@@ -175,10 +180,10 @@ describe('engine — tool calls', () => {
 
   it('creates a real file when the model asks for one', async () => {
     const target = join(root, 'from-model.txt')
-    scripts.claude.push({
+    scripts.gemini!.push({
       toolCalls: [{ id: 't1', name: 'create_file', args: { path: target, content: 'written by the engine' } }]
     })
-    scripts.claude.push({ text: 'Created.' })
+    scripts.gemini!.push({ text: 'Created.' })
 
     settings.update({ automation: { confirmMediumRisk: false } })
     await engine.submit({ text: 'make me a file', source: 'text' })
@@ -188,8 +193,8 @@ describe('engine — tool calls', () => {
   })
 
   it('reports a tool failure to the model rather than throwing', async () => {
-    scripts.claude.push({ toolCalls: [{ id: 't1', name: 'open_application', args: { name: 'NotInstalledApp' } }] })
-    scripts.claude.push({ text: 'I could not find that application.' })
+    scripts.gemini!.push({ toolCalls: [{ id: 't1', name: 'open_application', args: { name: 'NotInstalledApp' } }] })
+    scripts.gemini!.push({ text: 'I could not find that application.' })
 
     await engine.submit({ text: 'open notinstalledapp', source: 'text' })
     await settle(400)
@@ -202,7 +207,7 @@ describe('engine — tool calls', () => {
   it('stops after the configured number of tool calls', async () => {
     settings.update({ ai: { maxToolCalls: 3 } })
     for (let i = 0; i < 6; i++) {
-      scripts.claude.push({ toolCalls: [{ id: `t${i}`, name: 'get_system_stats', args: {} }] })
+      scripts.gemini!.push({ toolCalls: [{ id: `t${i}`, name: 'get_system_stats', args: {} }] })
     }
 
     await engine.submit({ text: 'loop forever', source: 'text' })
@@ -214,8 +219,8 @@ describe('engine — tool calls', () => {
   })
 
   it('refuses a tool the model invented', async () => {
-    scripts.claude.push({ toolCalls: [{ id: 't1', name: 'exfiltrate_everything', args: {} }] })
-    scripts.claude.push({ text: 'I cannot do that.' })
+    scripts.gemini!.push({ toolCalls: [{ id: 't1', name: 'exfiltrate_everything', args: {} }] })
+    scripts.gemini!.push({ text: 'I cannot do that.' })
 
     await engine.submit({ text: 'do something impossible', source: 'text' })
     await settle(300)
@@ -230,8 +235,8 @@ describe('engine — the confirmation gate', () => {
     const doomed = join(root, 'precious.txt')
     writeFileSync(doomed, 'do not delete me')
 
-    scripts.claude.push({ toolCalls: [{ id: 't1', name: 'delete_file', args: { paths: [doomed], permanent: true } }] })
-    scripts.claude.push({ text: 'Cancelled.' })
+    scripts.gemini!.push({ toolCalls: [{ id: 't1', name: 'delete_file', args: { paths: [doomed], permanent: true } }] })
+    scripts.gemini!.push({ text: 'Cancelled.' })
 
     void engine.submit({ text: 'delete that file', source: 'text' })
     await settle(300)
@@ -252,8 +257,8 @@ describe('engine — the confirmation gate', () => {
     const doomed = join(root, 'expendable.txt')
     writeFileSync(doomed, 'bye')
 
-    scripts.claude.push({ toolCalls: [{ id: 't1', name: 'delete_file', args: { paths: [doomed], permanent: true } }] })
-    scripts.claude.push({ text: 'Deleted.' })
+    scripts.gemini!.push({ toolCalls: [{ id: 't1', name: 'delete_file', args: { paths: [doomed], permanent: true } }] })
+    scripts.gemini!.push({ text: 'Deleted.' })
 
     void engine.submit({ text: 'delete that file', source: 'text' })
     await settle(300)
@@ -267,8 +272,8 @@ describe('engine — the confirmation gate', () => {
   })
 
   it('never asks for a low-risk action', async () => {
-    scripts.claude.push({ toolCalls: [{ id: 't1', name: 'get_system_stats', args: {} }] })
-    scripts.claude.push({ text: 'Fine.' })
+    scripts.gemini!.push({ toolCalls: [{ id: 't1', name: 'get_system_stats', args: {} }] })
+    scripts.gemini!.push({ text: 'Fine.' })
 
     await engine.submit({ text: 'status', source: 'text' })
     await settle(400)
@@ -279,7 +284,7 @@ describe('engine — the confirmation gate', () => {
 
 describe('engine — plans', () => {
   it('shows a plan and waits for approval before acting', async () => {
-    scripts.claude.push({
+    scripts.gemini!.push({
       toolCalls: [
         {
           id: 'p1',
@@ -288,7 +293,7 @@ describe('engine — plans', () => {
         }
       ]
     })
-    scripts.claude.push({ text: 'Cancelled.' })
+    scripts.gemini!.push({ text: 'Cancelled.' })
 
     void engine.submit({ text: 'prepare my computer for work', source: 'text' })
     await settle(300)
@@ -306,11 +311,11 @@ describe('engine — plans', () => {
   })
 
   it('advances the plan as steps execute', async () => {
-    scripts.claude.push({
+    scripts.gemini!.push({
       toolCalls: [{ id: 'p1', name: 'present_plan', args: { title: 'Check the machine', steps: ['Read metrics'] } }]
     })
-    scripts.claude.push({ toolCalls: [{ id: 't1', name: 'get_system_stats', args: {} }] })
-    scripts.claude.push({ text: 'All nominal.' })
+    scripts.gemini!.push({ toolCalls: [{ id: 't1', name: 'get_system_stats', args: {} }] })
+    scripts.gemini!.push({ text: 'All nominal.' })
 
     await engine.submit({ text: 'check everything and report', source: 'text' })
     await settle(500)
@@ -323,30 +328,30 @@ describe('engine — plans', () => {
 
 describe('engine — provider failure', () => {
   it('falls back to the other provider on a transient failure', async () => {
-    scripts.claude.push({ throws: new ProviderError('overloaded', 'overloaded', 'claude', true) })
-    scripts.groq.push({ text: 'Answered by the fallback.' })
+    scripts.gemini!.push({ throws: new ProviderError('overloaded', 'overloaded', 'gemini', true) })
+    scripts.groq!.push({ text: 'Answered by the fallback.' })
 
     await engine.submit({ text: 'hello', source: 'text' })
     await settle(300)
 
-    expect(calls.map((call) => call.provider)).toEqual(['claude', 'groq'])
+    expect(calls.map((call) => call.provider)).toEqual(['gemini', 'groq'])
     expect(of('message').at(-1)?.message.text).toBe('Answered by the fallback.')
   })
 
   it('does not fall back when automatic fallback is switched off', async () => {
     settings.update({ ai: { autoFallback: false } })
-    scripts.claude.push({ throws: new ProviderError('overloaded', 'overloaded', 'claude', true) })
+    scripts.gemini!.push({ throws: new ProviderError('overloaded', 'overloaded', 'gemini', true) })
 
     await engine.submit({ text: 'hello', source: 'text' })
     await settle(300)
 
-    expect(calls.map((call) => call.provider)).toEqual(['claude'])
+    expect(calls.map((call) => call.provider)).toEqual(['gemini'])
     expect(history.list()[0].outcome).toBe('failed')
   })
 
   it('explains an authentication failure instead of crashing', async () => {
     fallbackTo = null
-    scripts.claude.push({ throws: new ProviderError('bad key', 'auth', 'claude', false) })
+    scripts.gemini!.push({ throws: new ProviderError('bad key', 'auth', 'gemini', false) })
 
     await engine.submit({ text: 'hello', source: 'text' })
     await settle(300)

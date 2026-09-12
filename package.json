@@ -1,7 +1,7 @@
 {
   "name": "jarvis",
   "version": "1.0.0",
-  "description": "JARVIS \u2014 Just A Really Very Intelligent System. A cross-platform desktop AI assistant that can see, reason about, and safely control your computer.",
+  "description": "JARVIS — Just A Really Very Intelligent System. A cross-platform desktop AI assistant that can see, reason about, and safely control your computer.",
   "private": true,
   "type": "module",
   "main": "out/main/index.js",
@@ -38,8 +38,7 @@
     "vitest": "^5.0.0"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.125.0",
-    "groq-sdk": "^1.6.0",
+    "openai": "^7.15.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "systeminformation": "^5.33.10",

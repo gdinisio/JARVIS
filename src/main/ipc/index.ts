@@ -1,9 +1,10 @@
 import { ipcMain, shell, app } from 'electron'
-import type { Snapshot, SubmitRequest, Settings, ProviderId } from '@shared/types'
+import type { Snapshot, SubmitRequest, Settings } from '@shared/types'
+import type { ProviderId } from '@shared/providers'
 import { IPC, type WindowCommand } from '@shared/ipc'
 import { engine } from '../core/engine'
 import { settings } from '../services/settings'
-import { secrets, type SecretName } from '../services/secrets'
+import { secrets, isKnownSecret, type SecretName } from '../services/secrets'
 import { providers } from '../core/ai'
 import { memory } from '../core/memory'
 import { routines } from '../core/routines'
@@ -117,9 +118,8 @@ export function registerIpc(): void {
   })
 
   handle<{ name: SecretName; value: string }>(IPC.invoke.setApiKey, async (payload) => {
-    if (payload.name !== 'ANTHROPIC_API_KEY' && payload.name !== 'GROQ_API_KEY') {
-      return { ok: false, error: 'Unknown key.' }
-    }
+    // Only keys a catalogued provider declares may be stored.
+    if (!isKnownSecret(payload.name)) return { ok: false, error: 'Unknown key.' }
     const status = payload.value?.trim() ? secrets.set(payload.name, payload.value) : secrets.clear(payload.name)
     providers.broadcast()
     return { ok: true, status }
@@ -129,30 +129,38 @@ export function registerIpc(): void {
 
   handle<{ provider: ProviderId }>(IPC.invoke.testProvider, async (payload) => {
     const result = await providers.test(payload.provider)
-    bus.say('SYSTEM', `${payload.provider === 'claude' ? 'Claude' : 'Groq'}: ${result.message}`, {
+    bus.say('SYSTEM', `${providers.get(payload.provider).name}: ${result.message}`, {
       level: result.ok ? 'success' : 'error'
     })
     return result
   })
 
+  /** Lists what a local backend actually has installed. */
+  handle<{ provider: ProviderId }>(IPC.invoke.listModels, async (payload) => {
+    const models = await providers.get(payload.provider).availableModels()
+    return { ok: true, models }
+  })
+
   handle<{ audio: ArrayBuffer; mimeType: string; language?: string }>(IPC.invoke.transcribe, async (payload) => {
     if (!payload?.audio) return { ok: false, error: 'No audio was supplied.' }
-    if (!providers.groq.isConfigured()) {
-      return { ok: false, error: 'Speech recognition needs a Groq API key. Add one in Settings → AI.' }
+    const transcriber = providers.transcriber()
+    if (!transcriber) {
+      return { ok: false, error: 'Speech recognition needs a Groq API key — it is free. Add one in Settings → AI.' }
     }
     const extension = payload.mimeType?.includes('wav') ? 'wav' : payload.mimeType?.includes('ogg') ? 'ogg' : 'webm'
-    const result = await providers.groq.transcribe(Buffer.from(payload.audio), `speech.${extension}`, payload.language)
+    const result = await transcriber.transcribe(Buffer.from(payload.audio), `speech.${extension}`, payload.language)
     return { ok: true, text: result.text, durationMs: result.durationMs }
   })
 
   handle<{ text: string; voice?: string; speed?: number }>(IPC.invoke.synthesise, async (payload) => {
     const text = String(payload?.text ?? '').trim()
     if (!text) return { ok: false, error: 'Nothing to say.' }
-    if (!providers.groq.isConfigured()) {
-      return { ok: false, error: 'The neural voice needs a Groq API key. Add one in Settings \u2192 AI.' }
+    const synthesiser = providers.synthesiser()
+    if (!synthesiser) {
+      return { ok: false, error: 'The neural voice needs a Groq API key — it is free. Add one in Settings \u2192 AI.' }
     }
     const config = settings.get().voice
-    const result = await providers.groq.synthesise(text, {
+    const result = await synthesiser.synthesise(text, {
       voice: payload.voice || config.neuralVoice,
       speed: payload.speed ?? config.rate
     })

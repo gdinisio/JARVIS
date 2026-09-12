@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { ProviderId, Settings } from '@shared/types'
+import type { Settings } from '@shared/types'
+import type { ProviderId } from '@shared/providers'
 import { useStore } from '../store/useStore'
 import { Row, Toggle, Slider, Select, TextField, HotkeyField } from '../components/fields'
 import { speaker } from '../lib/tts'
 import { neuralVoice } from '../lib/neuralVoice'
+import { PROVIDERS, speechProviders, type ProviderId as CatalogueProviderId } from '@shared/providers'
 import { prepareSpeech } from '@shared/speech'
 import { listMicrophones } from '../lib/voice'
 import { playCue } from '../lib/sound'
@@ -30,27 +32,11 @@ const SECTIONS: Array<{ id: SectionId; label: string }> = [
   { id: 'about', label: 'About' }
 ]
 
-const CLAUDE_MODELS = ['claude-opus-5', 'claude-sonnet-5', 'claude-haiku-4-5-20251001']
-/** PlayAI voices, grouped so the list reads as a choice rather than a dump. */
-const NEURAL_VOICES = [
-  { value: 'Fritz-PlayAI', label: 'Fritz — measured, neutral' },
-  { value: 'Atlas-PlayAI', label: 'Atlas — low and calm' },
-  { value: 'Basil-PlayAI', label: 'Basil — British, dry' },
-  { value: 'Briggs-PlayAI', label: 'Briggs — warm, deliberate' },
-  { value: 'Calum-PlayAI', label: 'Calum — light, quick' },
-  { value: 'Cillian-PlayAI', label: 'Cillian — Irish, soft' },
-  { value: 'Celeste-PlayAI', label: 'Celeste — clear, even' },
-  { value: 'Quinn-PlayAI', label: 'Quinn — bright, precise' },
-  { value: 'Arista-PlayAI', label: 'Arista — crisp, formal' },
-  { value: 'Indigo-PlayAI', label: 'Indigo — relaxed' }
-]
-
-const GROQ_MODELS = [
-  'llama-3.3-70b-versatile',
-  'llama-3.1-8b-instant',
-  'meta-llama/llama-4-scout-17b-16e-instruct',
-  'openai/gpt-oss-120b'
-]
+/** Voices offered by the configured speech provider. */
+const NEURAL_VOICES = (speechProviders()[0]?.speechVoices ?? []).map((voice) => ({
+  value: voice.value,
+  label: voice.label
+}))
 
 export function SettingsView(): JSX.Element {
   const settings = useStore((s) => s.settings)
@@ -68,6 +54,7 @@ export function SettingsView(): JSX.Element {
   const [microphones, setMicrophones] = useState<Array<{ deviceId: string; label: string }>>([])
   const [logs, setLogs] = useState<Array<{ id: string; ts: number; level: string; scope: string; message: string }>>([])
   const [warning, setWarning] = useState<string | null>(null)
+  const [localModels, setLocalModels] = useState<Partial<Record<CatalogueProviderId, string[]>>>({})
   const [previewing, setPreviewing] = useState(false)
   const [previewError, setPreviewError] = useState<string | null>(null)
 
@@ -84,6 +71,16 @@ export function SettingsView(): JSX.Element {
     if (section === 'voice') void speaker.ready().then(() => setVoices(speaker.ranked(settings?.general.language ?? 'en')))
     if (section === 'microphone') void listMicrophones().then(setMicrophones)
     if (section === 'logs') void window.jarvis.logs().then((entries) => Array.isArray(entries) && setLogs(entries.slice().reverse()))
+    if (section === 'ai') {
+      // Ask local backends what they actually have installed.
+      for (const entry of PROVIDERS.filter((candidate) => candidate.local)) {
+        void window.jarvis.listModels(entry.id).then((result) => {
+          if (result?.ok && result.models?.length) {
+            setLocalModels((current) => ({ ...current, [entry.id]: result.models }))
+          }
+        })
+      }
+    }
   }, [section])
 
   if (!settings) return <div className="view"><div className="empty">Loading settings…</div></div>
@@ -110,7 +107,7 @@ export function SettingsView(): JSX.Element {
     }
   }
 
-  const saveKey = async (name: 'ANTHROPIC_API_KEY' | 'GROQ_API_KEY') => {
+  const saveKey = async (name: string) => {
     const value = keyDraft[name] ?? ''
     await window.jarvis.setApiKey(name, value)
     setKeyDraft((draft) => ({ ...draft, [name]: '' }))
@@ -204,95 +201,124 @@ export function SettingsView(): JSX.Element {
           )}
 
           {section === 'ai' && (
-            <Section title="AI" description="Which model answers, and how.">
-              <Row label="Provider" hint="AUTO sends reasoning and planning to Claude, and short exchanges to Groq.">
+            <Section
+              title="AI"
+              description="Every provider here is free: a key you get with an email address and no payment method. Add more than one and JARVIS routes each request to whichever suits it."
+            >
+              <Row label="Provider" hint="Auto sends quick commands to the fastest engine, and reasoning or anything visual to the strongest.">
                 <Select
                   label="Provider"
                   value={settings.ai.provider}
                   onChange={(v) => patch({ ai: { provider: v } })}
                   options={[
                     { value: 'auto', label: 'Auto — route by request' },
-                    { value: 'claude', label: 'Claude only' },
-                    { value: 'groq', label: 'Groq only' }
+                    ...PROVIDERS.filter((entry) => provider?.providers[entry.id]?.configured).map((entry) => ({
+                      value: entry.id,
+                      label: `${entry.name} only`
+                    }))
                   ]}
                 />
               </Row>
 
-              <div className="key-card panel">
-                <span className="corner tl" /><span className="corner br" />
-                <div className="key-head">
-                  <div>
-                    <div className="key-title">Anthropic Claude</div>
-                    <div className="key-sub label">
-                      {status('ANTHROPIC_API_KEY')?.configured
-                        ? `Configured ${status('ANTHROPIC_API_KEY')?.hint} · from ${sourceLabel(status('ANTHROPIC_API_KEY')?.source)}`
-                        : 'Not configured'}
+              {PROVIDERS.filter((entry) => entry.id !== 'custom').map((entry) => {
+                const health = provider?.providers[entry.id]
+                const keyStatusEntry = entry.envVar ? status(entry.envVar) : undefined
+                return (
+                  <div className="key-card panel" key={entry.id}>
+                    <span className="corner tl" /><span className="corner br" />
+                    <div className="key-head">
+                      <div>
+                        <div className="key-title">
+                          {entry.name}
+                          {health?.vision && <span className="cap-tag">sees images</span>}
+                          {entry.transcriptionModel && <span className="cap-tag">hears you</span>}
+                          {entry.speechModel && <span className="cap-tag">speaks</span>}
+                          {entry.local && <span className="cap-tag local">on this machine</span>}
+                        </div>
+                        <div className="key-sub label">
+                          {entry.requiresKey
+                            ? keyStatusEntry?.configured
+                              ? `Configured ${keyStatusEntry.hint} · from ${sourceLabel(keyStatusEntry.source)}`
+                              : 'Not configured'
+                            : health?.configured
+                              ? 'Detected on this machine'
+                              : 'Not detected — install Ollama and run it'}
+                        </div>
+                      </div>
+                      <span className={`dot ${health?.configured && health.ok ? 'ok' : health?.configured ? 'warn' : ''}`} />
                     </div>
-                  </div>
-                  <span className={`dot ${provider?.claude.ok && provider.claude.configured ? 'ok' : provider?.claude.configured ? 'warn' : ''}`} />
-                </div>
-                <div className="key-entry">
-                  <TextField
-                    label="Anthropic API key"
-                    type="password"
-                    mono
-                    value={keyDraft.ANTHROPIC_API_KEY ?? ''}
-                    onChange={(v) => setKeyDraft((draft) => ({ ...draft, ANTHROPIC_API_KEY: v }))}
-                    placeholder={status('ANTHROPIC_API_KEY')?.configured ? 'Replace key…' : 'sk-ant-…'}
-                  />
-                  <button className="btn" onClick={() => void saveKey('ANTHROPIC_API_KEY')} disabled={!keyDraft.ANTHROPIC_API_KEY?.trim()}>Save</button>
-                  <button className="btn" onClick={() => void test('claude')} disabled={testing === 'claude' || !status('ANTHROPIC_API_KEY')?.configured}>
-                    {testing === 'claude' ? 'Testing…' : 'Test'}
-                  </button>
-                </div>
-                {testResult.claude && <div className="key-result">{testResult.claude}</div>}
-                <Row label="Model">
-                  <Select
-                    label="Claude model"
-                    value={settings.ai.claudeModel}
-                    onChange={(v) => patch({ ai: { claudeModel: v } })}
-                    options={CLAUDE_MODELS.map((model) => ({ value: model, label: model }))}
-                  />
-                </Row>
-              </div>
 
-              <div className="key-card panel">
-                <span className="corner tl" /><span className="corner br" />
-                <div className="key-head">
-                  <div>
-                    <div className="key-title">Groq</div>
-                    <div className="key-sub label">
-                      {status('GROQ_API_KEY')?.configured
-                        ? `Configured ${status('GROQ_API_KEY')?.hint} · from ${sourceLabel(status('GROQ_API_KEY')?.source)}`
-                        : 'Not configured — also required for speech recognition'}
-                    </div>
+                    <p className="key-free">{entry.freeTier}</p>
+
+                    {entry.requiresKey && (
+                      <div className="key-entry">
+                        <TextField
+                          label={`${entry.name} API key`}
+                          type="password"
+                          mono
+                          value={keyDraft[entry.envVar] ?? ''}
+                          onChange={(v) => setKeyDraft((draft) => ({ ...draft, [entry.envVar]: v }))}
+                          placeholder={keyStatusEntry?.configured ? 'Replace key…' : `Paste a ${entry.name} key`}
+                        />
+                        <button
+                          className="btn"
+                          onClick={() => void saveKey(entry.envVar)}
+                          disabled={!keyDraft[entry.envVar]?.trim()}
+                        >
+                          Save
+                        </button>
+                        <button
+                          className="btn"
+                          onClick={() => void test(entry.id)}
+                          disabled={testing === entry.id || !health?.configured}
+                        >
+                          {testing === entry.id ? 'Testing…' : 'Test'}
+                        </button>
+                      </div>
+                    )}
+
+                    {!entry.requiresKey && (
+                      <div className="key-entry">
+                        <TextField
+                          label={`${entry.name} endpoint`}
+                          mono
+                          value={settings.ai.baseUrls?.[entry.id] ?? ''}
+                          onChange={(v) => patch({ ai: { baseUrls: { ...settings.ai.baseUrls, [entry.id]: v } } })}
+                          placeholder={entry.baseUrl}
+                        />
+                        <button className="btn" onClick={() => void test(entry.id)} disabled={testing === entry.id}>
+                          {testing === entry.id ? 'Testing…' : 'Test'}
+                        </button>
+                      </div>
+                    )}
+
+                    {testResult[entry.id] && <div className="key-result">{testResult[entry.id]}</div>}
+
+                    <Row label="Model">
+                      <Select
+                        label={`${entry.name} model`}
+                        value={settings.ai.models?.[entry.id] ?? entry.defaultModel}
+                        onChange={(v) => patch({ ai: { models: { ...settings.ai.models, [entry.id]: v } } })}
+                        options={[
+                          ...entry.models.map((model) => ({ value: model.id, label: model.label })),
+                          ...(localModels[entry.id] ?? [])
+                            .filter((id) => !entry.models.some((model) => model.id === id))
+                            .map((id) => ({ value: id, label: `${id} (installed)` }))
+                        ]}
+                      />
+                    </Row>
+
+                    {entry.signupUrl && (
+                      <button
+                        className="link-button key-link"
+                        onClick={() => void window.jarvis.openExternal(entry.signupUrl)}
+                      >
+                        {entry.requiresKey ? `Get a free ${entry.name} key` : `Install ${entry.name}`}
+                      </button>
+                    )}
                   </div>
-                  <span className={`dot ${provider?.groq.ok && provider.groq.configured ? 'ok' : provider?.groq.configured ? 'warn' : ''}`} />
-                </div>
-                <div className="key-entry">
-                  <TextField
-                    label="Groq API key"
-                    type="password"
-                    mono
-                    value={keyDraft.GROQ_API_KEY ?? ''}
-                    onChange={(v) => setKeyDraft((draft) => ({ ...draft, GROQ_API_KEY: v }))}
-                    placeholder={status('GROQ_API_KEY')?.configured ? 'Replace key…' : 'gsk_…'}
-                  />
-                  <button className="btn" onClick={() => void saveKey('GROQ_API_KEY')} disabled={!keyDraft.GROQ_API_KEY?.trim()}>Save</button>
-                  <button className="btn" onClick={() => void test('groq')} disabled={testing === 'groq' || !status('GROQ_API_KEY')?.configured}>
-                    {testing === 'groq' ? 'Testing…' : 'Test'}
-                  </button>
-                </div>
-                {testResult.groq && <div className="key-result">{testResult.groq}</div>}
-                <Row label="Model">
-                  <Select
-                    label="Groq model"
-                    value={settings.ai.groqModel}
-                    onChange={(v) => patch({ ai: { groqModel: v } })}
-                    options={GROQ_MODELS.map((model) => ({ value: model, label: model }))}
-                  />
-                </Row>
-              </div>
+                )
+              })}
 
               {keyStatus.some((entry) => entry.insecureStorage) && (
                 <div className="notice warn">
@@ -310,7 +336,7 @@ export function SettingsView(): JSX.Element {
               <Row label="Tool calls per request" hint="A runaway-loop guard for multi-step tasks.">
                 <Slider label="Max tool calls" value={settings.ai.maxToolCalls} min={1} max={30} step={1} onChange={(v) => patch({ ai: { maxToolCalls: v } })} format={(v) => String(v)} />
               </Row>
-              <Row label="Automatic fallback" hint="If the chosen provider fails, try the other one.">
+              <Row label="Automatic fallback" hint="If the chosen provider fails or hits its free limit, try the next one.">
                 <Toggle checked={settings.ai.autoFallback} onChange={(v) => patch({ ai: { autoFallback: v } })} label="Automatic fallback" />
               </Row>
             </Section>
@@ -343,7 +369,14 @@ export function SettingsView(): JSX.Element {
               </Row>
 
               {settings.voice.engine === 'neural' ? (
-                <Row label="Voice" hint={provider?.groq.configured ? undefined : 'Needs a Groq API key — Settings → AI.'}>
+                <Row
+                  label="Voice"
+                  hint={
+                    provider?.providers.groq?.configured
+                      ? undefined
+                      : 'Needs a Groq API key — free, and configured in Settings → AI.'
+                  }
+                >
                   <Select
                     label="Neural voice"
                     value={settings.voice.neuralVoice}
@@ -658,9 +691,9 @@ export function SettingsView(): JSX.Element {
           {section === 'privacy' && (
             <Section title="Privacy" description="What leaves this computer, and what is written down.">
               <div className="notice">
-                Requests you make are sent to the provider you configure — Anthropic or Groq — along with system metrics and
-                tool results needed to answer them. Voice audio is sent to Groq for transcription. Nothing else is transmitted,
-                and JARVIS has no telemetry of its own.
+                Requests you make are sent to the free provider you configure, along with the system metrics and tool
+                results needed to answer them. Voice audio goes to Groq for transcription. Nothing else is transmitted, and
+                JARVIS has no telemetry of its own. Configure Ollama instead and nothing leaves this computer at all.
               </div>
               <Row label="Log tool arguments" hint="Include paths and URLs in the activity log. API keys are never logged.">
                 <Toggle checked={settings.privacy.logArguments} onChange={(v) => patch({ privacy: { logArguments: v } })} label="Log arguments" />
@@ -714,7 +747,8 @@ export function SettingsView(): JSX.Element {
                 <dl className="about-facts">
                   <div><dt>Platform</dt><dd>{platform === 'win32' ? 'Windows' : platform === 'darwin' ? 'macOS' : 'Linux'}</dd></div>
                   <div><dt>Tools available</dt><dd>{tools.length}</dd></div>
-                  <div><dt>Providers</dt><dd>Anthropic Claude · Groq</dd></div>
+                  <div><dt>Providers</dt><dd>{PROVIDERS.filter((entry) => entry.id !== 'custom').map((entry) => entry.name).join(' · ')}</dd></div>
+                  <div><dt>Cost</dt><dd>Free tiers only</dd></div>
                   <div><dt>Telemetry</dt><dd>None</dd></div>
                 </dl>
               </div>

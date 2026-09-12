@@ -1,8 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { IPC, type WindowCommand } from '@shared/ipc'
-import type {
-  EngineEvent, HistoryEntry, ProviderId, Routine, Settings, Snapshot, ToolResult
-} from '@shared/types'
+import type { EngineEvent, HistoryEntry, Routine, Settings, Snapshot, ToolResult } from '@shared/types'
+import type { ProviderId } from '@shared/providers'
 
 /**
  * The preload bridge.
@@ -26,12 +25,16 @@ const api = {
 
   resetSettings: (): Promise<{ ok: boolean; settings?: Settings }> => ipcRenderer.invoke(IPC.invoke.resetSettings),
 
-  setApiKey: (name: 'ANTHROPIC_API_KEY' | 'GROQ_API_KEY', value: string) =>
-    ipcRenderer.invoke(IPC.invoke.setApiKey, { name, value }),
+  /** `name` is a provider's environment variable, e.g. GROQ_API_KEY. */
+  setApiKey: (name: string, value: string) => ipcRenderer.invoke(IPC.invoke.setApiKey, { name, value }),
 
   keyStatus: () => ipcRenderer.invoke(IPC.invoke.keyStatus),
 
   testProvider: (provider: ProviderId) => ipcRenderer.invoke(IPC.invoke.testProvider, { provider }),
+
+  /** Lists the models a backend actually has, for local servers. */
+  listModels: (provider: ProviderId): Promise<{ ok: boolean; models?: string[] }> =>
+    ipcRenderer.invoke(IPC.invoke.listModels, { provider }),
 
   transcribe: (audio: ArrayBuffer, mimeType: string, language?: string) =>
     ipcRenderer.invoke(IPC.invoke.transcribe, { audio, mimeType, language }),

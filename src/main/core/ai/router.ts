@@ -1,18 +1,32 @@
-import type { ProviderId, ProviderSelection } from '@shared/types'
+import type { ProviderId, ProviderRole } from '@shared/providers'
 
 /**
  * AUTO routing.
  *
- * Claude handles reasoning, planning, ambiguity and anything visual. Groq
- * handles the short, obvious exchanges where latency is what the user
- * actually notices. Pure and deterministic so the behaviour is testable.
+ * Requests fall into roles: a short obvious command wants the lowest latency
+ * available, a multi-step or ambiguous one wants the strongest reasoning, and
+ * anything involving the screen needs a model that can see. Providers declare
+ * how good a candidate they are for each role in the catalogue; this picks the
+ * best one that is actually configured.
+ *
+ * Pure and deterministic, so the behaviour is testable.
  */
+
+export interface RoutingCandidate {
+  id: ProviderId
+  /** Configured, healthy and usable right now. */
+  available: boolean
+  /** Catalogue ranking per role, 0–100. */
+  rank: Record<ProviderRole, number>
+  /** The selected model on this provider accepts images. */
+  vision: boolean
+}
 
 export interface RoutingInput {
   text: string
-  mode: ProviderSelection
-  claudeAvailable: boolean
-  groqAvailable: boolean
+  /** 'auto', or a specific provider the user pinned. */
+  mode: ProviderId | 'auto'
+  candidates: RoutingCandidate[]
   /** True once the conversation already involves tool results. */
   hasToolResults?: boolean
   /** Index of this turn within the current request loop. */
@@ -25,6 +39,7 @@ export interface RoutingDecision {
   provider: ProviderId | null
   reason: string
   complexity: number
+  role: ProviderRole
   /** Provider to try if the first one fails. */
   fallback: ProviderId | null
 }
@@ -63,36 +78,83 @@ export function scoreComplexity(text: string, input: Partial<RoutingInput> = {})
   return Math.max(0, score) + depth
 }
 
-const CLAUDE_THRESHOLD = 3
+const REASONING_THRESHOLD = 3
+
+/** Best available candidate for a role, or null when none is usable. */
+function pick(candidates: RoutingCandidate[], role: ProviderRole, exclude?: ProviderId | null): RoutingCandidate | null {
+  const usable = candidates
+    .filter((candidate) => candidate.available && candidate.id !== exclude)
+    .filter((candidate) => (role === 'vision' ? candidate.vision : true))
+  if (!usable.length) return null
+  return usable.reduce((best, candidate) => (candidate.rank[role] > best.rank[role] ? candidate : best))
+}
 
 export function routeRequest(input: RoutingInput): RoutingDecision {
   const complexity = scoreComplexity(input.text, input)
-  const { claudeAvailable, groqAvailable } = input
+  const { candidates } = input
 
-  const available = (id: ProviderId) => (id === 'claude' ? claudeAvailable : groqAvailable)
-  const other = (id: ProviderId): ProviderId => (id === 'claude' ? 'groq' : 'claude')
+  const role: ProviderRole = input.needsVision
+    ? 'vision'
+    : complexity >= REASONING_THRESHOLD
+      ? 'reasoning'
+      : 'fast'
 
-  const resolve = (preferred: ProviderId, reason: string): RoutingDecision => {
-    if (available(preferred)) {
-      return { provider: preferred, reason, complexity, fallback: available(other(preferred)) ? other(preferred) : null }
-    }
-    if (available(other(preferred))) {
+  // A pinned provider is honoured whenever it can actually serve the request.
+  if (input.mode !== 'auto') {
+    const pinned = candidates.find((candidate) => candidate.id === input.mode)
+    if (pinned?.available && (role !== 'vision' || pinned.vision)) {
       return {
-        provider: other(preferred),
-        reason: `${preferred === 'claude' ? 'Claude' : 'Groq'} is not configured; using ${other(preferred) === 'claude' ? 'Claude' : 'Groq'}.`,
+        provider: pinned.id,
+        reason: `${input.mode} selected manually.`,
         complexity,
-        fallback: null
+        role,
+        fallback: pick(candidates, role, pinned.id)?.id ?? null
       }
     }
-    return { provider: null, reason: 'No AI provider is configured.', complexity, fallback: null }
+    if (pinned?.available && role === 'vision') {
+      // Pinned but blind: fall through to a provider that can see, and say so.
+      const seeing = pick(candidates, 'vision')
+      if (seeing) {
+        return {
+          provider: seeing.id,
+          reason: `${input.mode} cannot read images; using ${seeing.id}.`,
+          complexity,
+          role,
+          fallback: null
+        }
+      }
+    }
   }
 
-  if (input.mode === 'claude') return resolve('claude', 'Claude selected manually.')
-  if (input.mode === 'groq') return resolve('groq', 'Groq selected manually.')
-
-  if (input.needsVision) return resolve('claude', 'The request involves looking at the screen.')
-  if (complexity >= CLAUDE_THRESHOLD) {
-    return resolve('claude', `Reasoning required (complexity ${complexity}).`)
+  const chosen = pick(candidates, role)
+  if (!chosen) {
+    // Nothing can see: fall back to a text provider so the user gets an
+    // explanation rather than silence.
+    if (role === 'vision') {
+      const any = pick(candidates, 'reasoning')
+      if (any) {
+        return {
+          provider: any.id,
+          reason: 'No configured provider can read images.',
+          complexity,
+          role,
+          fallback: null
+        }
+      }
+    }
+    return { provider: null, reason: 'No AI provider is configured.', complexity, role, fallback: null }
   }
-  return resolve('groq', `Fast path (complexity ${complexity}).`)
+
+  return {
+    provider: chosen.id,
+    reason:
+      role === 'vision'
+        ? 'The request involves looking at the screen.'
+        : role === 'reasoning'
+          ? `Reasoning required (complexity ${complexity}).`
+          : `Fast path (complexity ${complexity}).`,
+    complexity,
+    role,
+    fallback: pick(candidates, role, chosen.id)?.id ?? null
+  }
 }

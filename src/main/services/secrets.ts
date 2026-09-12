@@ -4,7 +4,17 @@ import { JsonStore } from './store'
 import { dataFile, dataDir } from '../util/paths'
 import { logger } from './logging'
 
-export type SecretName = 'ANTHROPIC_API_KEY' | 'GROQ_API_KEY'
+import { PROVIDERS } from '@shared/providers'
+
+/** Any environment variable a catalogued provider declares. */
+export type SecretName = string
+
+/** The set JARVIS will store, so an arbitrary name cannot be written. */
+const KNOWN_SECRETS = new Set(PROVIDERS.map((provider) => provider.envVar).filter(Boolean))
+
+export function isKnownSecret(name: string): boolean {
+  return KNOWN_SECRETS.has(name)
+}
 
 export interface KeyStatus {
   name: SecretName
@@ -118,7 +128,7 @@ class SecretStore {
   }
 
   allStatus(): KeyStatus[] {
-    return (['ANTHROPIC_API_KEY', 'GROQ_API_KEY'] as SecretName[]).map((n) => this.status(n))
+    return [...KNOWN_SECRETS].map((name) => this.status(name))
   }
 }
 

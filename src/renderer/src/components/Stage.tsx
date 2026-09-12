@@ -51,7 +51,9 @@ export function Stage(): JSX.Element {
             <span className="stage-status-text">{transcribing ? 'Transcribing' : STATUS_TEXT[status] ?? status}</span>
             <span className="stage-status-rule" />
           </div>
-          {provider?.active && <div className="stage-provider label">{provider.active === 'claude' ? 'Claude' : 'Groq'} engaged</div>}
+          {provider?.active && (
+          <div className="stage-provider label">{provider.providers[provider.active]?.name ?? provider.active} engaged</div>
+        )}
         </div>
       </div>
 

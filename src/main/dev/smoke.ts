@@ -221,6 +221,23 @@ export async function runSmoke(window: BrowserWindow): Promise<void> {
     record('demo mode is labelled in the interface', demoLabelled)
     await shoot('12-demo-mode')
 
+    /* The provider catalogue must stay coherent. */
+    const { PROVIDERS } = await import('@shared/providers')
+    const { providers } = await import('../core/ai')
+    record(
+      'every catalogued provider has an endpoint and a default model',
+      PROVIDERS.filter((entry) => entry.id !== 'custom').every(
+        (entry) => /^https?:\/\//.test(entry.baseUrl) && !!entry.defaultModel
+      ),
+      PROVIDERS.map((entry) => entry.id).join(', ')
+    )
+    record(
+      'a local backend is not assumed to be running',
+      providers.get('ollama').isConfigured() === false,
+      'ollama reports unconfigured until it answers a probe'
+    )
+    record('no provider is configured in this environment', !providers.anyConfigured())
+
     const failures = steps.filter((step) => !step.ok)
     // eslint-disable-next-line no-console
     console.log(`\nSMOKE SUMMARY: ${steps.length - failures.length}/${steps.length} passed`)

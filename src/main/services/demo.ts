@@ -54,7 +54,7 @@ export function demoReply(text: string): DemoReply {
 
   if (/\b(hello|hi|hey|good (morning|evening|afternoon))\b/.test(value)) {
     return {
-      text: 'Online, in demo mode. Add an Anthropic or Groq key in Settings and I can start working for real.',
+      text: 'Online, in demo mode. Add a free Groq or Gemini key in Settings and I can start working for real.',
       console: [{ source: 'JARVIS', text: 'Voice input detected.' }],
       actions: []
     }

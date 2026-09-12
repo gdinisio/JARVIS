@@ -1,7 +1,20 @@
 import { describe, it, expect } from 'vitest'
-import { routeRequest, scoreComplexity } from '../src/main/core/ai/router'
+import { routeRequest, scoreComplexity, type RoutingCandidate } from '../src/main/core/ai/router'
+import { PROVIDER_BY_ID } from '../src/shared/providers'
+import type { ProviderId } from '../src/shared/providers'
 
-const both = { claudeAvailable: true, groqAvailable: true, mode: 'auto' as const }
+/** Builds a candidate from the real catalogue ranking, so tests track it. */
+function candidate(id: ProviderId, options: { available?: boolean; vision?: boolean } = {}): RoutingCandidate {
+  const descriptor = PROVIDER_BY_ID.get(id)!
+  return {
+    id,
+    available: options.available ?? true,
+    rank: descriptor.rank,
+    vision: options.vision ?? descriptor.models.some((model) => model.vision && model.id === descriptor.defaultModel)
+  }
+}
+
+const both = [candidate('groq'), candidate('gemini')]
 
 describe('scoreComplexity', () => {
   it('scores short, obvious commands low', () => {
@@ -26,60 +39,126 @@ describe('scoreComplexity', () => {
   })
 
   it('raises the score once a conversation is several tool calls deep', () => {
-    const text = 'open chrome'
-    const shallow = scoreComplexity(text, { hasToolResults: true, turnIndex: 0 })
-    const deep = scoreComplexity(text, { hasToolResults: true, turnIndex: 3 })
+    const shallow = scoreComplexity('open chrome', { hasToolResults: true, turnIndex: 0 })
+    const deep = scoreComplexity('open chrome', { hasToolResults: true, turnIndex: 3 })
     expect(deep).toBeGreaterThan(shallow)
   })
 })
 
 describe('routeRequest', () => {
-  it('sends simple requests to Groq', () => {
-    const decision = routeRequest({ text: 'open chrome', ...both })
+  it('sends a simple command to the fastest provider', () => {
+    const decision = routeRequest({ text: 'open chrome', mode: 'auto', candidates: both })
     expect(decision.provider).toBe('groq')
-    expect(decision.fallback).toBe('claude')
+    expect(decision.role).toBe('fast')
+    expect(decision.fallback).toBe('gemini')
   })
 
-  it('sends reasoning to Claude', () => {
+  it('sends reasoning to the strongest provider', () => {
     const decision = routeRequest({
       text: 'prepare my computer for work and open the project I was editing yesterday',
-      ...both
+      mode: 'auto',
+      candidates: both
     })
-    expect(decision.provider).toBe('claude')
-    expect(decision.fallback).toBe('groq')
+    expect(decision.provider).toBe('gemini')
+    expect(decision.role).toBe('reasoning')
   })
 
-  it('sends anything visual to Claude', () => {
-    const decision = routeRequest({ text: 'what is this', ...both, needsVision: true })
-    expect(decision.provider).toBe('claude')
+  it('sends anything visual to a provider that can see', () => {
+    const decision = routeRequest({
+      text: 'what is this',
+      mode: 'auto',
+      candidates: [candidate('groq', { vision: false }), candidate('gemini', { vision: true })],
+      needsVision: true
+    })
+    expect(decision.provider).toBe('gemini')
+    expect(decision.role).toBe('vision')
   })
 
-  it('honours a manual override in both directions', () => {
-    expect(routeRequest({ text: 'plan a complicated multi-step thing and then do it', ...both, mode: 'groq' }).provider).toBe('groq')
-    expect(routeRequest({ text: 'hi', ...both, mode: 'claude' }).provider).toBe('claude')
+  it('honours a pinned provider', () => {
+    expect(
+      routeRequest({ text: 'plan a complicated multi-step thing and then do it', mode: 'groq', candidates: both }).provider
+    ).toBe('groq')
+    expect(routeRequest({ text: 'hi', mode: 'gemini', candidates: both }).provider).toBe('gemini')
+  })
+
+  it('overrides a pinned provider that cannot see, and says why', () => {
+    const decision = routeRequest({
+      text: 'what is on my screen',
+      mode: 'groq',
+      candidates: [candidate('groq', { vision: false }), candidate('gemini', { vision: true })],
+      needsVision: true
+    })
+    expect(decision.provider).toBe('gemini')
+    expect(decision.reason).toMatch(/cannot read images/i)
   })
 
   it('falls back to whichever provider is configured', () => {
-    const noClaude = routeRequest({ text: 'plan my whole work setup and then open everything', mode: 'auto', claudeAvailable: false, groqAvailable: true })
-    expect(noClaude.provider).toBe('groq')
-    expect(noClaude.fallback).toBeNull()
+    const onlyGroq = routeRequest({
+      text: 'plan my whole work setup and then open everything',
+      mode: 'auto',
+      candidates: [candidate('groq'), candidate('gemini', { available: false })]
+    })
+    expect(onlyGroq.provider).toBe('groq')
+    expect(onlyGroq.fallback).toBeNull()
 
-    const noGroq = routeRequest({ text: 'open chrome', mode: 'auto', claudeAvailable: true, groqAvailable: false })
-    expect(noGroq.provider).toBe('claude')
+    const onlyGemini = routeRequest({
+      text: 'open chrome',
+      mode: 'auto',
+      candidates: [candidate('groq', { available: false }), candidate('gemini')]
+    })
+    expect(onlyGemini.provider).toBe('gemini')
   })
 
-  it('falls back even when a provider was chosen manually', () => {
-    const decision = routeRequest({ text: 'open chrome', mode: 'claude', claudeAvailable: false, groqAvailable: true })
+  it('falls back even when a provider was pinned but is unavailable', () => {
+    const decision = routeRequest({
+      text: 'open chrome',
+      mode: 'gemini',
+      candidates: [candidate('groq'), candidate('gemini', { available: false })]
+    })
     expect(decision.provider).toBe('groq')
   })
 
+  it('still answers when nothing can see, rather than going silent', () => {
+    const decision = routeRequest({
+      text: 'what is on my screen',
+      mode: 'auto',
+      candidates: [candidate('groq', { vision: false })],
+      needsVision: true
+    })
+    expect(decision.provider).toBe('groq')
+    expect(decision.reason).toMatch(/no configured provider can read images/i)
+  })
+
   it('returns no provider when none is configured', () => {
-    const decision = routeRequest({ text: 'open chrome', mode: 'auto', claudeAvailable: false, groqAvailable: false })
+    const decision = routeRequest({
+      text: 'open chrome',
+      mode: 'auto',
+      candidates: [candidate('groq', { available: false }), candidate('gemini', { available: false })]
+    })
     expect(decision.provider).toBeNull()
     expect(decision.reason).toMatch(/no ai provider/i)
   })
 
+  it('prefers a hosted provider over the local one when both are available', () => {
+    const decision = routeRequest({
+      text: 'open chrome',
+      mode: 'auto',
+      candidates: [candidate('groq'), candidate('ollama')]
+    })
+    expect(decision.provider).toBe('groq')
+    expect(decision.fallback).toBe('ollama')
+  })
+
+  it('uses the local provider when it is all that is left', () => {
+    const decision = routeRequest({
+      text: 'plan something complicated and then carry it out',
+      mode: 'auto',
+      candidates: [candidate('groq', { available: false }), candidate('ollama')]
+    })
+    expect(decision.provider).toBe('ollama')
+  })
+
   it('always explains its choice', () => {
-    expect(routeRequest({ text: 'open chrome', ...both }).reason.length).toBeGreaterThan(0)
+    expect(routeRequest({ text: 'open chrome', mode: 'auto', candidates: both }).reason.length).toBeGreaterThan(0)
   })
 })

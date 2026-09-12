@@ -90,7 +90,7 @@ Run one with run_routine when the user names it. Create one with create_routine 
   }
 
   if (!context.hasVision) {
-    sections.push('SCREEN: The active model cannot look at images. If the user asks what is on screen, say that looking at the screen requires the Claude provider.')
+    sections.push('SCREEN: The active model cannot look at images. If the user asks what is on screen, say that reading the screen needs a vision-capable provider such as Gemini, and that it is free to add in Settings.')
   }
 
   if (context.demo) {

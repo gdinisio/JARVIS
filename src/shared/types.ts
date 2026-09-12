@@ -43,23 +43,31 @@ export interface ChatMessage {
 
 /* ─────────────────────────────── Providers ─────────────────────────────── */
 
-export type ProviderId = 'claude' | 'groq'
+export type { ProviderId } from './providers'
+import type { ProviderId } from './providers'
+
 export type ProviderSelection = ProviderId | 'auto'
 
 export interface ProviderStatus {
   /** Provider currently selected for the next request. */
   active: ProviderId | null
   mode: ProviderSelection
-  claude: ProviderHealth
-  groq: ProviderHealth
+  /** Health of every catalogued provider, keyed by id. */
+  providers: Record<string, ProviderHealth>
   online: boolean
   demo: boolean
 }
 
 export interface ProviderHealth {
+  id: ProviderId
+  name: string
   configured: boolean
   ok: boolean
   model: string
+  /** The selected model accepts images. */
+  vision: boolean
+  /** Runs on this machine, so it works with no network. */
+  local: boolean
   /** Human-readable reason when `ok` is false. */
   message?: string
   lastCheck?: number
@@ -301,8 +309,10 @@ export interface Settings {
   }
   ai: {
     provider: ProviderSelection
-    claudeModel: string
-    groqModel: string
+    /** Chosen model per provider, keyed by provider id. */
+    models: Partial<Record<ProviderId, string>>
+    /** Endpoint override per provider, for self-hosted and custom servers. */
+    baseUrls: Partial<Record<ProviderId, string>>
     temperature: number
     maxTokens: number
     autoFallback: boolean
