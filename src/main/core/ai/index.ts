@@ -43,6 +43,33 @@ class ProviderManager {
     this.probeTimer.unref?.()
   }
 
+  /**
+   * Asks every configured provider what it actually serves.
+   *
+   * Providers retire models — a list written into the source is a guess with
+   * an expiry date. Fetching it means a deprecation shows up as a corrected
+   * dropdown rather than a failed request.
+   */
+  async refreshModels(): Promise<void> {
+    const configured = this.configured()
+    await Promise.all(configured.map((provider) => provider.availableModels()))
+
+    for (const provider of configured) {
+      if (provider.configuredModelMissing()) {
+        logger.warn('ai', 'The configured model is no longer offered.', {
+          provider: provider.id,
+          using: provider.model()
+        })
+        bus.say(
+          'SYSTEM',
+          `${provider.name} no longer offers the model that was selected. Using ${provider.model()} instead — pick another in Settings → AI.`,
+          { level: 'warn' }
+        )
+      }
+    }
+    this.broadcast()
+  }
+
   stopLocalDiscovery(): void {
     if (this.probeTimer) clearInterval(this.probeTimer)
     this.probeTimer = null

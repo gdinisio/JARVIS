@@ -72,8 +72,10 @@ export function SettingsView(): JSX.Element {
     if (section === 'microphone') void listMicrophones().then(setMicrophones)
     if (section === 'logs') void window.jarvis.logs().then((entries) => Array.isArray(entries) && setLogs(entries.slice().reverse()))
     if (section === 'ai') {
-      // Ask local backends what they actually have installed.
-      for (const entry of PROVIDERS.filter((candidate) => candidate.local)) {
+      // Ask every configured provider what it actually serves, rather than
+      // trusting a list written into the source months ago.
+      for (const entry of PROVIDERS) {
+        if (!provider?.providers[entry.id]?.configured) continue
         void window.jarvis.listModels(entry.id).then((result) => {
           if (result?.ok && result.models?.length) {
             setLocalModels((current) => ({ ...current, [entry.id]: result.models }))
@@ -294,17 +296,16 @@ export function SettingsView(): JSX.Element {
 
                     {testResult[entry.id] && <div className="key-result">{testResult[entry.id]}</div>}
 
-                    <Row label="Model">
+                    <Row
+                      label="Model"
+                      hint={modelHint(entry.id, settings.ai.models?.[entry.id] ?? entry.defaultModel, localModels[entry.id])}
+                      warn={isModelMissing(settings.ai.models?.[entry.id] ?? entry.defaultModel, localModels[entry.id])}
+                    >
                       <Select
                         label={`${entry.name} model`}
                         value={settings.ai.models?.[entry.id] ?? entry.defaultModel}
                         onChange={(v) => patch({ ai: { models: { ...settings.ai.models, [entry.id]: v } } })}
-                        options={[
-                          ...entry.models.map((model) => ({ value: model.id, label: model.label })),
-                          ...(localModels[entry.id] ?? [])
-                            .filter((id) => !entry.models.some((model) => model.id === id))
-                            .map((id) => ({ value: id, label: `${id} (installed)` }))
-                        ]}
+                        options={modelOptions(entry, localModels[entry.id])}
                       />
                     </Row>
 
@@ -781,6 +782,33 @@ function MicMeter(): JSX.Element {
       <span className="label">{listening ? 'Open' : 'Closed'}</span>
     </div>
   )
+}
+
+/**
+  * The provider's own list wins when we have it: a model written into the
+  * source can be retired at any time, and offering it would simply fail.
+  */
+function modelOptions(
+  entry: (typeof PROVIDERS)[number],
+  live: string[] | undefined
+): Array<{ value: string; label: string }> {
+  const labels = new Map(entry.models.map((model) => [model.id, model.label]))
+  if (live?.length) {
+    return live.map((id) => ({ value: id, label: labels.get(id) ?? id }))
+  }
+  return entry.models.map((model) => ({ value: model.id, label: model.label }))
+}
+
+function isModelMissing(selected: string, live: string[] | undefined): boolean {
+  return !!live?.length && !live.includes(selected)
+}
+
+function modelHint(providerId: string, selected: string, live: string[] | undefined): string | undefined {
+  if (isModelMissing(selected, live)) {
+    return `${providerId} no longer offers ${selected}. Pick one from the list — JARVIS is using an available model meanwhile.`
+  }
+  if (live?.length) return `${live.length} models available on this account.`
+  return undefined
 }
 
 function sourceLabel(source?: string): string {

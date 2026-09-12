@@ -2,7 +2,9 @@ import { describe, it, expect } from 'vitest'
 import { normaliseError } from '../src/main/core/ai/openai-compatible'
 import { ProviderError } from '../src/main/core/ai/types'
 import { providers } from '../src/main/core/ai'
-import { PROVIDERS, PROVIDER_BY_ID, modelSupportsVision, transcriptionProviders, speechProviders } from '../src/shared/providers'
+import {
+  PROVIDERS, PROVIDER_BY_ID, modelSupportsVision, transcriptionProviders, speechProviders, isChatModel
+} from '../src/shared/providers'
 
 describe('provider catalogue', () => {
   it('offers only providers with a genuinely free tier', () => {
@@ -30,9 +32,34 @@ describe('provider catalogue', () => {
 
   it('knows which models can see', () => {
     expect(modelSupportsVision('gemini', 'gemini-3.8-flash')).toBe(true)
-    expect(modelSupportsVision('groq', 'llama-3.3-70b-versatile')).toBe(false)
-    expect(modelSupportsVision('groq', 'meta-llama/llama-4-scout-17b-16e-instruct')).toBe(true)
+    expect(modelSupportsVision('groq', 'openai/gpt-oss-120b')).toBe(false)
     expect(modelSupportsVision('ollama', 'llama3.2-vision')).toBe(true)
+  })
+
+  it('offers no model that the provider has announced as retired', () => {
+    // These were withdrawn by Groq in 2026; listing them guarantees a failure.
+    const retired = ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant', 'playai-tts', 'playai-tts-arabic']
+    for (const provider of PROVIDERS) {
+      for (const model of provider.models) {
+        expect(retired, `${provider.id}: ${model.id}`).not.toContain(model.id)
+      }
+      expect(retired, `${provider.id} speech model`).not.toContain(provider.speechModel ?? '')
+    }
+  })
+
+  it('filters non-chat models out of a live model list', () => {
+    for (const id of [
+      'whisper-large-v3-turbo',
+      'canopylabs/orpheus-v1-english',
+      'meta-llama/llama-prompt-guard-2-86m',
+      'openai/gpt-oss-safeguard-20b',
+      'text-embedding-3-small'
+    ]) {
+      expect(isChatModel(id), id).toBe(false)
+    }
+    for (const id of ['openai/gpt-oss-120b', 'qwen/qwen3.8-27b', 'groq/compound', 'gemini-3.8-flash', 'llama3.2']) {
+      expect(isChatModel(id), id).toBe(true)
+    }
   })
 
   it('nominates exactly one provider for speech in and out', () => {

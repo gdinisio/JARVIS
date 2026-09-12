@@ -74,7 +74,7 @@ export function defaultSettings(platform: NodeJS.Platform): Settings {
       // present; 'system' is the dependency-free default.
       engine: 'system',
       voiceURI: '',
-      neuralVoice: 'Fritz-PlayAI',
+      neuralVoice: 'troy',
       rate: 1,
       // Shifting pitch away from 1 is what makes a synthetic voice sound
       // artificially deep rather than calm. Let the voice do the work.

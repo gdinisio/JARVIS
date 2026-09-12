@@ -68,6 +68,8 @@ function bootstrap(): void {
     providers.setOnline(net.isOnline())
     // A local backend may or may not be running; find out rather than assume.
     void providers.startLocalDiscovery()
+    // And ask the hosted ones what they currently serve.
+    void providers.refreshModels()
     providers.broadcast()
 
     // Network and power transitions matter to a voice assistant.

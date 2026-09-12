@@ -210,6 +210,7 @@ provider that hits its daily cap falls back to the next.
 | Provider | What it is for | The free tier, honestly |
 |---|---|---|
 | **Groq** | The fast path, plus **speech recognition and the neural voice** | ~30 requests a minute, no card. Start here — it is the only provider that also hears and speaks. [Get a key](https://console.groq.com/keys) |
+| | | *Currently GPT-OSS 120B / 20B, Qwen3.8, Compound; Whisper for speech in, Orpheus for speech out.* |
 | **Google Gemini** | Reasoning, planning and **reading your screen** | Free from AI Studio, no card, very large context. The only dependable free option that can see. [Get a key](https://aistudio.google.com/apikey) |
 | **OpenRouter** | Variety and fallback | Genuinely free models, no card — but roughly 50 requests a day, which makes it a better backup than a main engine. [Get a key](https://openrouter.ai/keys) |
 | **Ollama** | Everything local | No key, no account, no network, no limits. You supply the hardware. Detected automatically when it is running. [Install](https://ollama.com/download) |
@@ -219,6 +220,14 @@ provider that hits its daily cap falls back to the next.
 
 Adding a provider is a row in `src/shared/providers.ts`: a base URL, a key
 name, a model list and a ranking per role. There is no per-provider code.
+
+**Model lists are fetched, not assumed.** Providers retire models — Groq
+withdrew the Llama 3.x models and PlayAI voices during 2026 — so a list written
+into the source is a guess with an expiry date. JARVIS asks each configured
+provider what it actually serves, populates the dropdown from that, and if your
+selected model has been retired it falls back to a working one, says so, and
+asks you to pick again. A deprecation becomes a corrected dropdown rather than
+a failed request.
 
 **Deliberately excluded:** services whose "free tier" needs a card. Cerebras,
 for one, ended its no-card tier in August 2026 — you can still point the Custom

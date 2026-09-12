@@ -53,6 +53,18 @@ export interface ProviderDescriptor {
   rank: Record<ProviderRole, number>
 }
 
+/**
+ * Matches model ids that are not conversational — speech models, safety
+ * classifiers, embeddings. A provider's live model list contains these
+ * alongside chat models, and offering them as the assistant's brain would
+ * simply fail at request time.
+ */
+const NON_CHAT = /(whisper|tts|orpheus|speech|embed|rerank|guard|safeguard|moderation|vision-encoder)/i
+
+export function isChatModel(id: string): boolean {
+  return !NON_CHAT.test(id)
+}
+
 export const PROVIDERS: ProviderDescriptor[] = [
   {
     id: 'groq',
@@ -62,28 +74,23 @@ export const PROVIDERS: ProviderDescriptor[] = [
     baseUrl: 'https://api.groq.com/openai/v1',
     envVar: 'GROQ_API_KEY',
     requiresKey: true,
-    defaultModel: 'llama-3.3-70b-versatile',
+    defaultModel: 'openai/gpt-oss-120b',
     models: [
-      { id: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B — balanced', fast: true, reasoning: true },
-      { id: 'llama-3.1-8b-instant', label: 'Llama 3.1 8B — fastest', fast: true },
-      { id: 'openai/gpt-oss-120b', label: 'GPT-OSS 120B — strongest here', reasoning: true },
-      { id: 'openai/gpt-oss-20b', label: 'GPT-OSS 20B — quick', fast: true },
-      { id: 'qwen/qwen3-32b', label: 'Qwen3 32B', reasoning: true },
-      { id: 'meta-llama/llama-4-scout-17b-16e-instruct', label: 'Llama 4 Scout — sees images', vision: true, fast: true }
+      { id: 'openai/gpt-oss-120b', label: 'GPT-OSS 120B — recommended', fast: true, reasoning: true },
+      { id: 'openai/gpt-oss-20b', label: 'GPT-OSS 20B — fastest', fast: true },
+      { id: 'qwen/qwen3.8-27b', label: 'Qwen3.8 27B', fast: true, reasoning: true },
+      { id: 'groq/compound', label: 'Compound — built-in web search', reasoning: true },
+      { id: 'groq/compound-mini', label: 'Compound Mini — built-in web search', fast: true }
     ],
     transcriptionModel: 'whisper-large-v3-turbo',
-    speechModel: 'playai-tts',
+    speechModel: 'canopylabs/orpheus-v1-english',
     speechVoices: [
-      { value: 'Fritz-PlayAI', label: 'Fritz — measured, neutral' },
-      { value: 'Atlas-PlayAI', label: 'Atlas — low and calm' },
-      { value: 'Basil-PlayAI', label: 'Basil — British, dry' },
-      { value: 'Briggs-PlayAI', label: 'Briggs — warm, deliberate' },
-      { value: 'Calum-PlayAI', label: 'Calum — light, quick' },
-      { value: 'Cillian-PlayAI', label: 'Cillian — Irish, soft' },
-      { value: 'Celeste-PlayAI', label: 'Celeste — clear, even' },
-      { value: 'Quinn-PlayAI', label: 'Quinn — bright, precise' },
-      { value: 'Arista-PlayAI', label: 'Arista — crisp, formal' },
-      { value: 'Indigo-PlayAI', label: 'Indigo — relaxed' }
+      { value: 'troy', label: 'Troy — low, measured' },
+      { value: 'daniel', label: 'Daniel — even, neutral' },
+      { value: 'austin', label: 'Austin — warm, relaxed' },
+      { value: 'autumn', label: 'Autumn — clear, bright' },
+      { value: 'diana', label: 'Diana — calm, precise' },
+      { value: 'hannah', label: 'Hannah — light, quick' }
     ],
     // The fastest useful inference available for free, by a wide margin.
     rank: { fast: 100, reasoning: 60, vision: 40 }

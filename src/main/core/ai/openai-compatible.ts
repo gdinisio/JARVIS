@@ -1,7 +1,7 @@
 import OpenAI from 'openai'
 import type { ToolCallRequest, ToolDescriptor } from '@shared/types'
 import type { ProviderDescriptor, ProviderId } from '@shared/providers'
-import { modelSupportsVision } from '@shared/providers'
+import { modelSupportsVision, isChatModel } from '@shared/providers'
 import type { AIProvider, AiMessage, AiRequest, AiResponse, ProviderTestResult } from './types'
 import { ProviderError } from './types'
 import { secrets } from '../../services/secrets'
@@ -28,6 +28,12 @@ export class OpenAICompatibleProvider implements AIProvider {
    * that anything is listening on it.
    */
   private reachable: boolean | null = null
+  /**
+   * Chat models the account can actually use, as reported by the provider.
+   * Null until fetched. Providers retire models, so a hardcoded list is a
+   * guess with an expiry date; this is the authority when available.
+   */
+  private available: string[] | null = null
 
   constructor(readonly descriptor: ProviderDescriptor) {}
 
@@ -71,9 +77,39 @@ export class OpenAICompatibleProvider implements AIProvider {
     return this.reachable
   }
 
+  /**
+    * The model to use.
+    *
+    * Prefers what the user chose, then the catalogue default, but never
+    * returns a model the provider has told us it does not serve: a
+    * deprecation should degrade to a working model, not to an error.
+    */
   model(): string {
     const configured = settings.get().ai.models?.[this.id]
-    return configured || this.descriptor.defaultModel
+    const preferred = configured || this.descriptor.defaultModel
+    if (!this.available || this.available.includes(preferred)) return preferred
+
+    const substitute =
+      this.descriptor.models.find((entry) => this.available!.includes(entry.id))?.id ?? this.available[0]
+    if (substitute) {
+      logger.warn(this.id, 'Configured model is unavailable; using an available one.', {
+        configured: preferred,
+        using: substitute
+      })
+      return substitute
+    }
+    return preferred
+  }
+
+  /** Models the provider reports, once known. */
+  knownModels(): string[] | null {
+    return this.available
+  }
+
+  /** True when the chosen model is one the provider does not serve. */
+  configuredModelMissing(): boolean {
+    const preferred = settings.get().ai.models?.[this.id] || this.descriptor.defaultModel
+    return !!this.available && !this.available.includes(preferred)
   }
 
   supportsVision(): boolean {
@@ -195,13 +231,19 @@ export class OpenAICompatibleProvider implements AIProvider {
     }
   }
 
-  /** Lists what a local backend actually has installed. */
+  /**
+    * Asks the provider which models this account can use, and caches the
+    * answer. Non-chat models (speech, guards, embeddings) are filtered out.
+    */
   async availableModels(): Promise<string[]> {
     try {
       const response = await this.sdk().models.list()
-      return response.data.map((entry) => entry.id).sort()
-    } catch {
-      return []
+      const ids = response.data.map((entry) => entry.id).filter(isChatModel).sort()
+      if (ids.length) this.available = ids
+      return ids
+    } catch (error) {
+      logger.debug(this.id, 'Model list unavailable.', { error: String(error) })
+      return this.available ?? []
     }
   }
 
@@ -234,11 +276,17 @@ export class OpenAICompatibleProvider implements AIProvider {
     const model = this.descriptor.speechModel
     if (!model) throw new ProviderError(`${this.name} does not synthesise speech.`, 'invalid', this.id, false)
 
+    // A voice name saved before the provider changed its speech model would
+    // be rejected outright; fall back to one this model actually offers.
+    const voices = this.descriptor.speechVoices ?? []
+    const requested = options.voice
+    const voice = requested && voices.some((entry) => entry.value === requested) ? requested : voices[0]?.value ?? 'troy'
+
     const started = Date.now()
     try {
       const response = await this.sdk().audio.speech.create({
         model,
-        voice: options.voice || this.descriptor.speechVoices?.[0]?.value || 'Fritz-PlayAI',
+        voice,
         input: text.slice(0, 4000),
         response_format: 'wav',
         speed: Math.max(0.5, Math.min(5, options.speed ?? 1))
