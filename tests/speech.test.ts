@@ -114,6 +114,20 @@ describe('toSentences', () => {
 })
 
 describe('prepareSpeech', () => {
+  it('delivers one utterance when chunking is switched off', () => {
+    const result = prepareSpeech('Certainly. Opening Chrome. It is ready.', { chunked: false })
+    expect(result.sentences).toHaveLength(1)
+    expect(result.sentences[0]).toBe('Certainly. Opening Chrome. It is ready.')
+  })
+
+  it('splits into sentences by default', () => {
+    expect(prepareSpeech('Certainly. Opening Chrome. It is ready.').sentences).toHaveLength(3)
+  })
+
+  it('returns nothing speakable for empty input', () => {
+    expect(prepareSpeech('   ')).toEqual({ text: '', sentences: [] })
+  })
+
   it('produces both the cleaned text and its sentences', () => {
     const result = prepareSpeech('**CPU** is at 28%.\nMemory is at 2.1 GB.')
     expect(result.text).toBe('C P U is at 28 percent. Memory is at 2.1 gigabytes.')

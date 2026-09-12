@@ -90,10 +90,19 @@ class NeuralVoice {
         const buffer = await pending
         if (run !== this.token) return true
 
-        // Fetch the next sentence while this one plays.
+        // Fetch the next sentence while this one plays. A single failure gets
+        // one retry; a sentence that still fails is reported rather than
+        // silently dropped, since the reply would otherwise be truncated.
         pending =
           index + 1 < sentences.length
-            ? fetchSentence(sentences[index + 1]).catch(() => null)
+            ? fetchSentence(sentences[index + 1]).catch(() =>
+                fetchSentence(sentences[index + 1]).catch((error: unknown) => {
+                  callbacks.onError?.(
+                    error instanceof Error ? error.message : 'Part of the reply could not be spoken.'
+                  )
+                  return null
+                })
+              )
             : Promise.resolve(null)
 
         if (buffer) await this.play(buffer, run)

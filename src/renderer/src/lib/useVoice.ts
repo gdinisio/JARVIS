@@ -38,6 +38,9 @@ export function useVoice(): VoiceControls {
   const stopSignal = useStore((s) => s.stopSpeakingSignal)
   const listenSignal = useStore((s) => s.listenSignal)
   const busy = useStore((s) => s.busy)
+  // Subscribed, not read from getState: the pause below must react the moment
+  // speech starts, not only when the engine stops being busy.
+  const speaking = useStore((s) => s.speaking)
 
   /* ── microphone lifecycle ─────────────────────────────────────────────── */
 
@@ -244,8 +247,7 @@ export function useVoice(): VoiceControls {
   // JARVIS must not hear itself. Pause the wake scan while it is working or
   // talking, and resume afterwards.
   useEffect(() => {
-    const state = useStore.getState()
-    const shouldPause = busy || state.speaking
+    const shouldPause = busy || speaking
     if (shouldPause && modeRef.current === 'wake') {
       resumeWakeRef.current = true
       modeRef.current = 'off'
@@ -254,9 +256,18 @@ export function useVoice(): VoiceControls {
       resumeWakeRef.current = false
       modeRef.current = 'wake'
       const input = inputRef.current
-      if (input?.isOpen() && !input.isRecording()) setTimeout(() => input.startRecording(), 220)
+      // A short gap lets the speakers fall silent before the microphone
+      // re-arms, so the tail of a reply cannot trigger the wake word.
+      if (input?.isOpen() && !input.isRecording()) {
+        setTimeout(() => {
+          const state = useStore.getState()
+          if (modeRef.current === 'wake' && !state.busy && !state.speaking && input.isOpen() && !input.isRecording()) {
+            input.startRecording()
+          }
+        }, 420)
+      }
     }
-  }, [busy, settings?.wakeWord.enabled])
+  }, [busy, speaking, settings?.wakeWord.enabled])
 
   /* ── speech output ────────────────────────────────────────────────────── */
 
@@ -268,10 +279,7 @@ export function useVoice(): VoiceControls {
 
     // Written text read literally is most of what makes speech sound robotic:
     // clean it, then deliver it a sentence at a time.
-    const { text, sentences } = prepareSpeech(
-      speakRequest.text,
-      settings.voice.chunked === false ? 100_000 : 220
-    )
+    const { text, sentences } = prepareSpeech(speakRequest.text, { chunked: settings.voice.chunked })
     if (!sentences.length) return
 
     const finished = () => {

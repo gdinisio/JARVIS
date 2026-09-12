@@ -55,7 +55,7 @@ and decides whether it runs, needs confirmation, or is refused.
 | Core visual | **Canvas 2D** | One animation loop, no DOM churn, no WebGL context to lose. Three.js would cost more than the design needs. |
 | Audio | **Web Audio + MediaRecorder** | Real analyser data drives the core's waveform, rather than a decorative animation. |
 | Speech in | **Groq Whisper** (`whisper-large-v3-turbo`) | Latency is what you feel in a voice assistant, and Groq is the fastest path from audio to text. |
-| Speech out | **OS voices** via Web Speech, with `say` / SAPI as fallback | No cloud round-trip, and `boundary` events let the core pulse with the actual speech. |
+| Speech out | **Groq neural TTS**, with OS voices as fallback | The operating system's voices are unmistakably synthetic. Neural audio also passes through an analyser on its way to the speakers, so the core's waveform is driven by real speech. |
 | Metrics | **systeminformation** | One cross-platform API for CPU, memory, GPU, disks, network and battery. |
 | Validation | **zod** | One schema per tool: runtime validation *and* the JSON Schema published to the model. |
 
@@ -212,6 +212,26 @@ off by default, and the indicator reads `WAKE` whenever it is armed.
 
 Say "stop" — or press `Esc` — and JARVIS stops talking immediately.
 
+### Making it sound like a voice rather than a synthesiser
+
+Most of what makes text-to-speech sound robotic is what it is asked to read, so
+JARVIS cleans the text before speaking it: paths become "report.pdf in
+Downloads" instead of a string of slashes, `2.1 GB` becomes gigabytes, URLs
+become their host, and markdown, arrows and emoji stop being read as
+punctuation. Replies are then delivered a sentence at a time, because speech
+engines shape intonation per utterance — three sentences as three utterances
+sound spoken, the same text as one sounds recited.
+
+Three engines, in descending order of how human they sound:
+
+| Engine | Needs | Notes |
+|---|---|---|
+| **Neural** | A Groq key, and a connection | Clearly the best. Selected automatically on first run when a Groq key is present. Sentences are fetched one ahead, so long replies play without gaps. |
+| **System** | Nothing | The OS voices. On Windows 11 pick one marked ★ — the "Natural" voices are far better than the legacy ones, and JARVIS ranks them first. |
+| **Native** | Nothing | `say` / SAPI directly, for systems that expose no voice to Chromium. |
+
+<img src="docs/images/voice.png" alt="Voice settings with the neural engine selected" width="100%">
+
 > On macOS, `Cmd+Space` belongs to Spotlight until you free it in System
 > Settings → Keyboard → Shortcuts. JARVIS reports the clash rather than failing
 > silently, and the shortcut is configurable.
@@ -256,10 +276,13 @@ the microphone to our own window and nothing else.
 | Category | Tools | Risk |
 |---|---|---|
 | Applications | `open_application` `close_application` `list_applications` | low – medium |
+| Applications | `close_other_applications` | **high** |
 | Files | `search_files` `get_file_info` `read_text_file` `open_path` | low – medium |
-| | `create_folder` `create_file` `move_file` `copy_file` `rename_file` | medium |
-| | `delete_file` | **high** |
+| | `find_large_files` `get_folder_size` | low |
+| | `create_folder` `create_file` `move_file` `move_files` `copy_file` `rename_file` | medium |
+| | `delete_file` `empty_trash` | **high** |
 | System | `get_system_stats` `get_running_processes` `open_settings` `set_volume` | low – medium |
+| Clipboard | `read_clipboard` `write_clipboard` | medium, opt-in |
 | Web | `open_url` `web_search` | low |
 | Screen | `take_screenshot` `read_screen` | medium, opt-in |
 | Terminal | `execute_command` | **high** |

@@ -167,6 +167,19 @@ describe('offline intent matching', () => {
     expect(matchLocalIntent('open https://example.com')?.call.name).toBe('open_url')
   })
 
+  it('understands the newer capabilities offline too', () => {
+    expect(matchLocalIntent("what's taking up all my storage")?.call.name).toBe('find_large_files')
+    expect(matchLocalIntent('show me my biggest files')?.call.name).toBe('find_large_files')
+    expect(matchLocalIntent('empty the trash')?.call.name).toBe('empty_trash')
+    expect(matchLocalIntent("what's on my clipboard")?.call.name).toBe('read_clipboard')
+  })
+
+  it('extracts which applications to keep when closing the rest', () => {
+    const intent = matchLocalIntent('close everything except Discord and Spotify')
+    expect(intent?.call.name).toBe('close_other_applications')
+    expect(intent?.call.args).toEqual({ keep: ['Discord', 'Spotify'] })
+  })
+
   it('returns nothing for a request that needs real reasoning', () => {
     for (const text of [
       'prepare my computer for work',

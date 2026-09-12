@@ -25,7 +25,49 @@ const call = (name: string, args: Record<string, unknown>, reply: string): Local
   reply
 })
 
+/**
+ * Rules are tried in order, so the specific ones come first: "close
+ * everything except X" must be reached before the plain "close X" rule,
+ * and a storage question before the general metrics rule.
+ */
 const RULES: Rule[] = [
+  {
+    pattern:
+      /\b(?:what(?:'s| is)\s+)?(?:taking up|using up|eating|hogging)\s+(?:all\s+)?(?:my|the)?\s*(?:disk|storage|space|disk space)\b/i,
+    build: () => call('find_large_files', { folder: '~', minimum_mb: 100 }, 'Measuring what is using your storage.')
+  },
+  {
+    pattern: /^(?:find|show me|list)\s+(?:my\s+)?(?:the\s+)?(?:biggest|largest)\s+files?(?:\s+in\s+(.+?))?[.!]?$/i,
+    build: (m) => call('find_large_files', { folder: m[1]?.trim() || '~', minimum_mb: 50 }, 'Finding the largest files.')
+  },
+  {
+    pattern: /^(?:how big is|what(?:'s| is) the size of)\s+(?:my\s+|the\s+)?(.+?)(?:\s+folder)?[.!?]?$/i,
+    build: (m) => call('get_folder_size', { path: m[1].trim() }, `Measuring ${m[1].trim()}.`)
+  },
+  {
+    pattern: /^(?:empty|clear|take out)\s+(?:the\s+|my\s+)?(?:trash|bin|recycle bin|rubbish)[.!]?$/i,
+    build: () => call('empty_trash', {}, 'Emptying the trash.')
+  },
+  {
+    pattern: /^close\s+(?:everything|all|all apps?|everything else)\s*(?:except|but|apart from)\s+(.+?)[.!]?$/i,
+    build: (m) => {
+      const keep = m[1]
+        .split(/\s*(?:,|and|&)\s*/i)
+        .map((name) => name.trim())
+        .filter(Boolean)
+        .slice(0, 20)
+      if (!keep.length) return null
+      return call('close_other_applications', { keep }, `Closing everything except ${keep.join(' and ')}.`)
+    }
+  },
+  {
+    pattern: /^(?:what(?:'s| is)\s+)?(?:on|in)\s+(?:my\s+)?clipboard[.!?]?$/i,
+    build: () => call('read_clipboard', {}, 'Reading the clipboard.')
+  },
+  {
+    pattern: /^copy\s+(?:this\s+)?(?:text\s+)?["“](.+)["”]\s*(?:to\s+(?:the\s+)?clipboard)?[.!]?$/i,
+    build: (m) => call('write_clipboard', { text: m[1] }, 'Copied to the clipboard.')
+  },
   {
     pattern: /^(?:please\s+)?(?:open|launch|start|run|fire up)\s+(?:my\s+|the\s+)?(.+?)(?:\s+(?:please|now))?[.!]?$/i,
     build: (m) => {

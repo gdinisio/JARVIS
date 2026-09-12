@@ -207,8 +207,18 @@ export function toSentences(input: string, maxLength = 220): string[] {
     .map((part) => (/[.!?,;:]$/.test(part) ? part : `${part}.`))
 }
 
-/** Everything a speech engine needs for one reply. */
-export function prepareSpeech(input: string, maxLength = 220): { text: string; sentences: string[] } {
+/**
+ * Everything a speech engine needs for one reply.
+ *
+ * With `chunked` off the reply is delivered as a single utterance; otherwise
+ * it is split into sentences so the engine can shape each one.
+ */
+export function prepareSpeech(
+  input: string,
+  options: { chunked?: boolean; maxLength?: number } = {}
+): { text: string; sentences: string[] } {
   const text = speakable(input)
-  return { text, sentences: toSentences(text, maxLength) }
+  if (!text) return { text: '', sentences: [] }
+  if (options.chunked === false) return { text, sentences: [text] }
+  return { text, sentences: toSentences(text, options.maxLength ?? 220) }
 }
