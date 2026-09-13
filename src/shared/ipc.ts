@@ -33,6 +33,12 @@ export const IPC = {
     window: 'jarvis:window',
     setListening: 'jarvis:listening',
     captureScreen: 'jarvis:screen:capture',
+    listGeometry: 'jarvis:model:list',
+    getMesh: 'jarvis:model:mesh',
+    openModelDialog: 'jarvis:model:pick',
+    saveModelDialog: 'jarvis:model:save-as',
+    dropModel: 'jarvis:model:drop',
+    closeModel: 'jarvis:model:close',
     openExternal: 'jarvis:open-external'
   },
   /** Main → renderer, push. */

@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import type { JsonSchemaObject, RiskLevel, ToolDescriptor, ToolName } from '@shared/types'
+import { MODEL_EXTENSIONS } from '@shared/geometry'
 
 /**
  * The tool catalogue.
@@ -10,6 +11,34 @@ import type { JsonSchemaObject, RiskLevel, ToolDescriptor, ToolName } from '@sha
  */
 
 const pathArg = z.string().min(1).max(1024)
+
+/**
+ * One solid in a generated model.
+ *
+ * This is deliberately a closed vocabulary. The model picks a primitive and
+ * gives it dimensions; it cannot describe arbitrary geometry, and it certainly
+ * cannot supply code for the kernel to run.
+ */
+const shapeArg = z.object({
+  shape: z.enum(['box', 'cylinder', 'sphere', 'cone', 'torus', 'rounded_box', 'prism'])
+    .describe('Which primitive to build.'),
+  size: z.tuple([z.number(), z.number(), z.number()]).optional()
+    .describe('Width, depth and height for box and rounded_box.'),
+  radius: z.number().positive().max(10000).optional()
+    .describe('Radius for sphere, cylinder, prism; outer radius for torus; base radius for cone.'),
+  radius_top: z.number().min(0).max(10000).optional().describe('Top radius of a cone. 0 gives a point.'),
+  radius_bottom: z.number().min(0).max(10000).optional().describe('Bottom radius of a cone.'),
+  height: z.number().positive().max(10000).optional().describe('Height of cylinder, cone or prism.'),
+  inner_radius: z.number().positive().max(10000).optional().describe('Tube radius of a torus.'),
+  round_radius: z.number().positive().max(1000).optional().describe('Corner radius of a rounded_box.'),
+  sides: z.number().int().min(3).max(64).optional().describe('Number of sides on a prism, e.g. 6 for a hexagon.'),
+  at: z.tuple([z.number(), z.number(), z.number()]).optional().describe('Centre position [x, y, z]. Defaults to the origin.'),
+  rotate: z.tuple([z.number(), z.number(), z.number()]).optional().describe('Rotation in degrees about x, y and z.'),
+  scale: z.tuple([z.number(), z.number(), z.number()]).optional().describe('Non-uniform scale factors.'),
+  op: z.enum(['add', 'subtract', 'intersect']).optional()
+    .describe('How this shape combines with everything before it. Use subtract to cut holes and pockets. Defaults to add.'),
+  name: z.string().max(40).optional().describe('Label for this feature, shown in the parts list.')
+})
 
 export const toolSchemas = {
   open_application: z.object({
@@ -152,6 +181,20 @@ export const toolSchemas = {
     name: z.string().min(1).max(60).describe('Routine to run.')
   }),
   list_routines: z.object({}),
+  open_3d_model: z.object({
+    path: pathArg.describe(`Model file to open and display. Supported: ${MODEL_EXTENSIONS.join(', ')}.`)
+  }),
+  create_3d_model: z.object({
+    name: z.string().min(1).max(60).describe('Short name for the model, e.g. "Bracket".'),
+    units: z.enum(['mm', 'cm', 'in']).optional().describe('Units the dimensions are given in. Defaults to millimetres.'),
+    shapes: z.array(shapeArg).min(1).max(64)
+      .describe('Solids combined in order. The first is the base; each later one adds to, subtracts from, or intersects the result so far.')
+  }),
+  export_3d_model: z.object({
+    path: pathArg.optional().describe('Where to save the .stl file. Defaults to the Documents folder.'),
+    model: z.string().max(120).optional().describe('Which open model to export, by name or id. Defaults to the most recent.')
+  }),
+  list_3d_models: z.object({}),
   delete_routine: z.object({
     name: z.string().min(1).max(60).describe('Routine to delete.')
   })
@@ -203,7 +246,11 @@ const meta: Record<ToolName, Meta> = {
   create_routine: { description: 'Save a named multi-step routine the user can run later by name or trigger phrase.', risk: 'low', category: 'memory', offline: true },
   run_routine: { description: 'Run a saved routine by name.', risk: 'medium', category: 'memory', offline: true },
   list_routines: { description: 'List the routines the user has saved, with their trigger phrases and step counts.', risk: 'low', category: 'memory', offline: true },
-  delete_routine: { description: 'Delete a saved routine.', risk: 'medium', category: 'memory', offline: true }
+  delete_routine: { description: 'Delete a saved routine.', risk: 'medium', category: 'memory', offline: true },
+  open_3d_model: { description: `Open a 3D or CAD file and display it in the Workshop, where the user can orbit, pan and zoom it. Reads ${MODEL_EXTENSIONS.join(', ')}. Use this whenever the user asks to see, open, view or inspect a model, part or CAD file.`, risk: 'low', category: 'modelling', offline: true },
+  create_3d_model: { description: 'Build a 3D model from exact dimensions by combining primitives with add, subtract and intersect, then show it in the Workshop. Use this for requests like "make a 40 by 20 by 10 plate with a 4 mm hole" or "design a hex nut". Dimensions are exact, so state them in millimetres unless told otherwise.', risk: 'low', category: 'modelling', offline: true },
+  export_3d_model: { description: 'Save an open model to disk as an STL file, ready for slicing or printing.', risk: 'medium', category: 'modelling', offline: true },
+  list_3d_models: { description: 'List the models currently open in the Workshop.', risk: 'low', category: 'modelling', offline: true }
 }
 
 function jsonSchema(schema: z.ZodType): JsonSchemaObject {

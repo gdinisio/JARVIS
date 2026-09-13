@@ -32,6 +32,15 @@ const call = (name: string, args: Record<string, unknown>, reply: string): Local
  */
 const RULES: Rule[] = [
   {
+    // A model file by name: "open bracket.step", "show me part.stl".
+    pattern: /^(?:open|show(?:\s+me)?|view|load|display)\s+(?:the\s+|my\s+)?(.+?\.(?:stl|obj|ply|3mf|step|stp|iges|igs|brep))\b(?:\s+in\s+the\s+viewer)?[.!]?$/i,
+    build: (m) => call('open_3d_model', { path: m[1].trim() }, `Opening ${m[1].trim()}.`)
+  },
+  {
+    pattern: /^(?:what(?:'s| is)\s+)?(?:open\s+)?in\s+the\s+workshop\??$|^list\s+(?:open\s+)?(?:3d\s+)?models?[.!?]?$/i,
+    build: () => call('list_3d_models', {}, 'Checking the workshop.')
+  },
+  {
     pattern:
       /\b(?:what(?:'s| is)\s+)?(?:taking up|using up|eating|hogging)\s+(?:all\s+)?(?:my|the)?\s*(?:disk|storage|space|disk space)\b/i,
     build: () => call('find_large_files', { folder: '~', minimum_mb: 100 }, 'Measuring what is using your storage.')

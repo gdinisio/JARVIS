@@ -24,6 +24,9 @@ interface Step {
 
 const steps: Step[] = []
 
+/** Tab order in the title bar; the smoke run clicks by position. */
+const NAV_ORDER = ['command', 'workshop', 'routines', 'memory', 'history', 'settings'] as const
+
 function record(name: string, ok: boolean, detail?: string): void {
   steps.push({ name, ok, ...(detail ? { detail } : {}) })
   // eslint-disable-next-line no-console
@@ -190,10 +193,62 @@ export async function runSmoke(window: BrowserWindow): Promise<void> {
       ['08-history', 'history'],
       ['09-settings', 'settings']
     ] as const) {
-      await evaluate(`document.querySelectorAll('.nav-tab')[${['command', 'routines', 'memory', 'history', 'settings'].indexOf(view)}].click()`)
+      await evaluate(`document.querySelectorAll('.nav-tab')[${NAV_ORDER.indexOf(view)}].click()`)
       await wait(700)
       record(`${view} screen renders`, await shoot(index))
     }
+
+    /* The 3D workshop: build a solid, then read a real CAD file. */
+    const built = await executeTool(
+      'create_3d_model',
+      {
+        name: 'Smoke Plate',
+        units: 'mm',
+        shapes: [
+          { shape: 'box', size: [40, 20, 10] },
+          { shape: 'cylinder', radius: 2, height: 20, at: [15, 0, 0], op: 'subtract' }
+        ]
+      },
+      context
+    )
+    const builtData = built.data as { size_mm?: number[]; volume_mm3?: number } | undefined
+    record('create_3d_model builds a solid to exact dimensions', built.ok && builtData?.size_mm?.[0] === 40, built.summary)
+    record(
+      'the subtracted hole removes the right amount of material',
+      Math.abs((builtData?.volume_mm3 ?? 0) - 7874.3) < 80,
+      `${builtData?.volume_mm3 ?? 0} mm³`
+    )
+
+    await evaluate(`document.querySelectorAll('.nav-tab')[${NAV_ORDER.indexOf('workshop')}].click()`)
+    await wait(1800)
+    const viewportLive = await evaluate<boolean>(
+      `(() => { const c = document.querySelector('.viewport-canvas canvas'); return !!c && c.width > 100 })()`
+    )
+    record('the viewport renders the generated model', viewportLive)
+    record('workshop screen renders', await shoot('14-workshop-generated'))
+
+    const measured = await evaluate<string>(
+      `document.querySelector('.workshop-measure .measure-value')?.textContent ?? ''`
+    )
+    record('measurements are shown alongside the model', measured.includes('40'), measured)
+
+    const fixture = join(process.cwd(), 'tests', 'fixtures', 'plate.step')
+    const cad = await executeTool('open_3d_model', { path: fixture }, context)
+    record('open_3d_model reads a STEP file through OpenCascade', cad.ok, cad.summary)
+    await wait(2200)
+    record('CAD geometry renders in the viewport', await evaluate<boolean>(
+      `(() => { const c = document.querySelector('.viewport-canvas canvas'); return !!c && c.width > 100 })()`
+    ))
+    record('workshop shows the CAD file', await shoot('15-workshop-cad'))
+
+    const exported = await executeTool('export_3d_model', { path: '~/jarvis-smoke/plate.stl' }, context)
+    record('export_3d_model writes an STL', exported.ok, exported.summary)
+
+    const badModel = await executeTool('open_3d_model', { path: '/etc/passwd' }, context)
+    record('a model path outside the allowed roots is refused', !badModel.ok, badModel.error)
+
+    await evaluate(`document.querySelectorAll('.nav-tab')[0].click()`)
+    await wait(500)
 
     /* Settings sections that matter most. */
     await evaluate(`[...document.querySelectorAll('.settings-nav-item')].find((b) => b.textContent === 'AI')?.click()`)

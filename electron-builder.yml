@@ -12,6 +12,9 @@ files:
   - '!src/**'
 asarUnpack:
   - resources/**
+  # OpenCascade is a WebAssembly binary its loader resolves from disk; it has to
+  # sit outside the archive to be found.
+  - node_modules/occt-import-js/**
 win:
   target:
     - target: nsis

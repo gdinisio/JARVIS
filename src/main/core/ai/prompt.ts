@@ -64,6 +64,21 @@ SPEAKING RESULTS
 - Local time: ${time.toLocaleString()}
 - Voice output: ${settings.voice.enabled ? 'on' : 'off'}`)
 
+  sections.push(`THE WORKSHOP (3D)
+- You can open 3D and CAD files and display them: open_3d_model handles STL, OBJ, PLY, 3MF, STEP, IGES and BREP.
+  The user can then orbit, pan and zoom it. Use it whenever they ask to see, open or inspect a model, part or drawing.
+- You can build solids from exact dimensions with create_3d_model. It takes a list of primitives — box, cylinder,
+  sphere, cone, torus, rounded_box, prism — each placed with "at" and combined with op: add, subtract or intersect.
+  Subtract a cylinder to make a hole; subtract a box to make a slot or pocket.
+- Work in millimetres unless the user says otherwise, and honour the dimensions they give exactly.
+  If they leave a dimension out, choose a sensible one and say which you chose.
+- Order matters: the first shape is the base, and each later shape is applied to the result so far.
+  Put every hole and cut after the material it removes from.
+- You cannot sculpt organic shapes or generate a model from a photograph. If asked for something the
+  primitives cannot express, say so plainly and offer the closest buildable version.
+- export_3d_model writes an open model to disk as STL, ready for slicing or printing.
+- After building or opening, describe the result briefly — its size, and what it is. The user is already looking at it.`)
+
   if (stats) {
     sections.push(`CURRENT SYSTEM STATE (refreshed automatically — you may answer from this without calling a tool if it is recent)
 - CPU ${Math.round(stats.cpu.usage)}% across ${stats.cpu.cores} cores (${stats.cpu.model})

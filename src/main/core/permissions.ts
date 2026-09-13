@@ -253,6 +253,10 @@ export function describeAction(toolName: string, args: Record<string, unknown>):
     case 'run_routine': return `Run the routine "${String(a.name ?? '')}".`
     case 'list_routines': return 'List saved routines.'
     case 'delete_routine': return `Delete the routine "${String(a.name ?? '')}".`
+    case 'open_3d_model': return `Open ${String(a.path ?? 'a model file')} in the 3D viewer.`
+    case 'create_3d_model': return `Build the model "${String(a.name ?? '')}" from ${Array.isArray(a.shapes) ? a.shapes.length : 0} shape(s).`
+    case 'export_3d_model': return `Save a model as STL${a.path ? ` to ${String(a.path)}` : ''}.`
+    case 'list_3d_models': return 'List open 3D models.'
     default: return `Run ${toolName}.`
   }
 }

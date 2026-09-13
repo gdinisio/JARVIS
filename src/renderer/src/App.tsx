@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { Suspense, lazy, useEffect } from 'react'
 import { useStore } from './store/useStore'
 import { useVoice } from './lib/useVoice'
 import { hexToRgb, rgba } from './lib/colour'
@@ -14,6 +14,9 @@ import { ConfirmDialog } from './components/ConfirmDialog'
 import { Notifications } from './components/Notifications'
 import { Onboarding } from './components/Onboarding'
 import { HistoryView } from './views/HistoryView'
+
+/** three.js is a large dependency and most sessions never open the Workshop. */
+const WorkshopView = lazy(() => import('./views/WorkshopView').then((m) => ({ default: m.WorkshopView })))
 import { RoutinesView } from './views/RoutinesView'
 import { MemoryView } from './views/MemoryView'
 import { SettingsView } from './views/SettingsView'
@@ -124,9 +127,9 @@ export function App(): JSX.Element {
         void voice.startListening()
         return
       }
-      if (modifier && !event.shiftKey && ['1', '2', '3', '4', '5'].includes(event.key)) {
+      if (modifier && !event.shiftKey && ['1', '2', '3', '4', '5', '6'].includes(event.key)) {
         event.preventDefault()
-        setView((['command', 'routines', 'memory', 'history', 'settings'] as const)[Number(event.key) - 1])
+        setView((['command', 'workshop', 'routines', 'memory', 'history', 'settings'] as const)[Number(event.key) - 1])
         return
       }
       if (event.key === 'Escape' && !typing) {
@@ -170,6 +173,10 @@ export function App(): JSX.Element {
               <Console />
             </aside>
           </div>
+        ) : view === 'workshop' ? (
+          <Suspense fallback={<div className="view-layout"><div className="label">Preparing the workshop…</div></div>}>
+            <WorkshopView />
+          </Suspense>
         ) : (
           <div className="view-layout">
             {view === 'history' && <HistoryView />}

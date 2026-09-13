@@ -1,4 +1,4 @@
-import { ipcMain, shell, app } from 'electron'
+import { ipcMain, shell, app, dialog } from 'electron'
 import type { Snapshot, SubmitRequest, Settings } from '@shared/types'
 import type { ProviderId } from '@shared/providers'
 import { IPC, type WindowCommand } from '@shared/ipc'
@@ -21,6 +21,8 @@ import { getWindow, applyWindowAppearance, showWindow } from '../windows/mainWin
 import { refreshTrayMenu } from '../windows/tray'
 import { registerHotkeys } from '../windows/hotkeys'
 import { speakNative, stopNativeSpeech } from '../services/speech'
+import { MODEL_EXTENSIONS } from '@shared/geometry'
+import { listModels, getModel, onModelsChanged, loadModelFile, closeModel, exportModel, GeometryError } from '../geometry'
 
 /**
  * The IPC surface.
@@ -40,7 +42,28 @@ export function applyLoginItem(config = settings.get()): void {
   }
 }
 
+/** Shared by the file dialog and drag-and-drop: open, announce, report. */
+async function openFromDisk(path: string): Promise<{ ok: boolean; error?: string; summary?: unknown }> {
+  if (!path) return { ok: false, error: 'No file was chosen.' }
+  try {
+    const summary = await loadModelFile(path)
+    bus.say('SYSTEM', `Opened ${summary.name} — ${summary.stats.triangles.toLocaleString()} triangles.`)
+    return { ok: true, summary }
+  } catch (error) {
+    const message = error instanceof GeometryError
+      ? error.message
+      : `That model could not be opened — ${String(error).slice(0, 160)}`
+    logger.warn('geometry', 'Model open failed.', { error: String(error) })
+    bus.say('SYSTEM', message, { level: 'error' })
+    return { ok: false, error: message }
+  }
+}
+
 export function registerIpc(): void {
+  // The workshop keeps its own state in the main process; push it whenever it
+  // changes so every open window stays in step.
+  onModelsChanged((models, focus) => bus.emit({ type: 'models', models, ...(focus ? { focus } : {}) }))
+
   const handle = <T>(channel: string, handler: (payload: T, event: Electron.IpcMainInvokeEvent) => unknown) => {
     ipcMain.handle(channel, async (event, payload: T) => {
       try {
@@ -66,7 +89,8 @@ export function registerIpc(): void {
       tools: TOOL_DESCRIPTORS,
       platform: process.platform,
       appVersion: app.getVersion(),
-      plan: engine.currentPlan()
+      plan: engine.currentPlan(),
+      models: listModels()
     }
   })
 
@@ -257,6 +281,64 @@ export function registerIpc(): void {
     } finally {
       bus.emit({ type: 'screen-access', active: false })
     }
+  })
+
+  handle(IPC.invoke.listGeometry, async () => ({ ok: true, models: listModels() }))
+
+  /**
+   * Geometry crosses the bridge as flat typed arrays. Structured clone keeps
+   * them binary, so a half-million-triangle part arrives in one copy rather
+   * than being rebuilt number by number from JSON.
+   */
+  handle<{ id: string }>(IPC.invoke.getMesh, async (payload) => {
+    const entry = getModel(String(payload?.id ?? ''))
+    if (!entry) return { ok: false, error: 'That model is no longer loaded.' }
+    return {
+      ok: true,
+      summary: entry.summary,
+      positions: entry.payload.positions,
+      normals: entry.payload.normals,
+      indices: entry.payload.indices,
+      groups: entry.payload.groups
+    }
+  })
+
+  handle(IPC.invoke.openModelDialog, async () => {
+    const win = getWindow()
+    const result = await dialog.showOpenDialog(win ?? undefined!, {
+      title: 'Open a 3D model',
+      properties: ['openFile'],
+      filters: [
+        { name: '3D models', extensions: MODEL_EXTENSIONS.map((extension) => extension.slice(1)) },
+        { name: 'CAD', extensions: ['step', 'stp', 'iges', 'igs', 'brep'] },
+        { name: 'Meshes', extensions: ['stl', 'obj', 'ply', '3mf'] },
+        { name: 'All files', extensions: ['*'] }
+      ]
+    })
+    const [path] = result.filePaths
+    if (result.canceled || !path) return { ok: false, cancelled: true }
+    return openFromDisk(path)
+  })
+
+  handle<{ path: string }>(IPC.invoke.dropModel, async (payload) => openFromDisk(String(payload?.path ?? '')))
+
+  handle<{ id: string }>(IPC.invoke.closeModel, async (payload) => ({
+    ok: closeModel(String(payload?.id ?? ''))
+  }))
+
+  handle<{ id?: string; name?: string }>(IPC.invoke.saveModelDialog, async (payload) => {
+    const entry = getModel(String(payload?.id ?? '')) ?? null
+    if (!entry) return { ok: false, error: 'That model is no longer loaded.' }
+    const win = getWindow()
+    const result = await dialog.showSaveDialog(win ?? undefined!, {
+      title: 'Export model',
+      defaultPath: `${entry.summary.name.replace(/[^\w .-]/g, '_')}.stl`,
+      filters: [{ name: 'STL', extensions: ['stl'] }]
+    })
+    if (result.canceled || !result.filePath) return { ok: false, cancelled: true }
+    const { bytes } = await exportModel(entry.summary.id, result.filePath)
+    bus.say('SYSTEM', `Exported ${entry.summary.name} to ${result.filePath}.`)
+    return { ok: true, path: result.filePath, bytes }
   })
 
   handle<{ url: string }>(IPC.invoke.openExternal, async (payload) => {

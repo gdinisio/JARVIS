@@ -17,6 +17,7 @@ import { takeScreenshot, readScreen } from './screen'
 import { executeCommand } from './terminal'
 import { lockComputer, restartComputer, shutdownComputer } from './power'
 import { remember, forget, recall, createRoutine, runRoutine, listRoutines, deleteRoutine } from './knowledge'
+import { open3dModel, create3dModel, export3dModel, list3dModels } from './models'
 
 const HANDLERS: Record<string, ToolHandler> = {
   open_application: openApplication,
@@ -57,7 +58,11 @@ const HANDLERS: Record<string, ToolHandler> = {
   create_routine: createRoutine,
   run_routine: runRoutine,
   list_routines: listRoutines,
-  delete_routine: deleteRoutine
+  delete_routine: deleteRoutine,
+  open_3d_model: open3dModel,
+  create_3d_model: create3dModel,
+  export_3d_model: export3dModel,
+  list_3d_models: list3dModels
 }
 
 /**

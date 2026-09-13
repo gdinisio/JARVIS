@@ -23,7 +23,16 @@ if (!hasDisplay && !hasXvfb) {
 }
 
 const electron = join(root, 'node_modules', '.bin', 'electron')
-const args = [root, '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage']
+// The 3D viewport needs WebGL, so the run asks for SwiftShader (software GL)
+// rather than disabling the GPU stack outright — there is no real GPU here.
+const args = [
+  root,
+  '--no-sandbox',
+  '--disable-dev-shm-usage',
+  '--use-gl=angle',
+  '--use-angle=swiftshader',
+  '--enable-unsafe-swiftshader'
+]
 const command = hasDisplay ? electron : 'xvfb-run'
 const commandArgs = hasDisplay ? args : ['-a', '--server-args=-screen 0 1600x1000x24', electron, ...args]
 

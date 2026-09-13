@@ -5,10 +5,11 @@ import type { JSX } from 'react'
 
 const VIEWS: Array<{ id: ViewName; label: string; key: string }> = [
   { id: 'command', label: 'Command', key: '1' },
-  { id: 'routines', label: 'Routines', key: '2' },
-  { id: 'memory', label: 'Memory', key: '3' },
-  { id: 'history', label: 'History', key: '4' },
-  { id: 'settings', label: 'Settings', key: '5' }
+  { id: 'workshop', label: 'Workshop', key: '2' },
+  { id: 'routines', label: 'Routines', key: '3' },
+  { id: 'memory', label: 'Memory', key: '4' },
+  { id: 'history', label: 'History', key: '5' },
+  { id: 'settings', label: 'Settings', key: '6' }
 ]
 
 const STATUS_LABEL: Record<string, string> = {

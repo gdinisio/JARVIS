@@ -4,8 +4,9 @@ import type {
   JarvisStatus, MemoryState, ProviderStatus, Routine, Settings, Snapshot, SystemStats,
   TaskPlan, ToolActivity, ToolDescriptor
 } from '@shared/types'
+import type { ModelSummary } from '@shared/geometry'
 
-export type ViewName = 'command' | 'history' | 'routines' | 'memory' | 'settings'
+export type ViewName = 'command' | 'workshop' | 'history' | 'routines' | 'memory' | 'settings'
 
 interface JarvisState {
   ready: boolean
@@ -39,6 +40,9 @@ interface JarvisState {
   platform: NodeJS.Platform
   appVersion: string
   screenAccess: boolean
+  /** 3D workshop: what is loaded, and which one the viewer is showing. */
+  models: ModelSummary[]
+  activeModel: string | null
   /** Incremented when the hotkey or tray asks the window to take focus. */
   activationSignal: number
   /** Incremented when something asks the renderer to start listening. */
@@ -61,6 +65,8 @@ interface JarvisState {
   setHistory: (history: HistoryEntry[]) => void
   clearSpeakRequest: () => void
   pushLocalConsole: (entry: ConsoleEntry) => void
+  setModels: (models: ModelSummary[], focus?: string) => void
+  setActiveModel: (id: string | null) => void
 }
 
 const MAX_CONSOLE = 300
@@ -96,6 +102,8 @@ export const useStore = create<JarvisState>((set, get) => ({
   platform: 'linux',
   appVersion: '1.0.0',
   screenAccess: false,
+  models: [],
+  activeModel: null,
   activationSignal: 0,
   listenSignal: 0,
   speakRequest: null,
@@ -116,7 +124,9 @@ export const useStore = create<JarvisState>((set, get) => ({
       memory: snapshot.memory,
       tools: snapshot.tools,
       platform: snapshot.platform,
-      appVersion: snapshot.appVersion
+      appVersion: snapshot.appVersion,
+      models: snapshot.models ?? [],
+      activeModel: snapshot.models?.[0]?.id ?? null
     }),
 
   applyEvent: (event) => {
@@ -190,6 +200,15 @@ export const useStore = create<JarvisState>((set, get) => ({
       case 'screen-access':
         set({ screenAccess: event.active })
         break
+      case 'models':
+        // A model arriving from a tool call brings the workshop forward: the
+        // whole point of asking for it was to look at the thing.
+        set((state) => ({
+          models: event.models,
+          activeModel: event.focus ?? (event.models.some((m) => m.id === state.activeModel) ? state.activeModel : event.models[0]?.id ?? null),
+          view: event.focus ? 'workshop' : state.view
+        }))
+        break
       case 'speak':
         set({ speakRequest: { id: event.id, text: event.text } })
         break
@@ -217,7 +236,13 @@ export const useStore = create<JarvisState>((set, get) => ({
   dismissNotification: (id) => set((state) => ({ notifications: state.notifications.filter((n) => n.id !== id) })),
   setHistory: (history) => set({ history }),
   clearSpeakRequest: () => set({ speakRequest: null }),
-  pushLocalConsole: (entry) => set((state) => ({ consoleEntries: [...state.consoleEntries, entry].slice(-MAX_CONSOLE) }))
+  pushLocalConsole: (entry) => set((state) => ({ consoleEntries: [...state.consoleEntries, entry].slice(-MAX_CONSOLE) })),
+  setModels: (models, focus) =>
+    set((state) => ({
+      models,
+      activeModel: focus ?? (models.some((m) => m.id === state.activeModel) ? state.activeModel : models[0]?.id ?? null)
+    })),
+  setActiveModel: (activeModel) => set({ activeModel })
 }))
 
 /** Convenience selector: the settings object is non-null after boot. */

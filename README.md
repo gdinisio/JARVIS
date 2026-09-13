@@ -30,6 +30,8 @@ what happened.
 "Delete these files"               → names every file, waits for confirmation
 "Remember my browser is Firefox"   → stored, visible and removable in Memory
 "Start work"                       → runs the routine you saved, offline
+"Open the bracket STEP file"       → real CAD geometry on screen, orbit and measure
+"Build a 40×20×10 plate, 4mm hole" → a solid with exact dimensions, exportable
 ```
 
 It never executes model-generated code. The model can only propose a call to one
@@ -52,7 +54,8 @@ and decides whether it runs, needs confirmation, or is refused.
 | Shell | **Electron** | Native tray/menu-bar, global shortcuts, screen capture and OS-encrypted credential storage all exist as first-class APIs on both Windows and macOS. Tauri would be leaner, but the automation layer — process enumeration, metrics, app discovery — is far more mature in Node, and a Rust toolchain is a real barrier for contributors on both platforms. |
 | Language | **TypeScript**, strict everywhere | The main↔renderer contract is the security boundary; it should be checked by a compiler. |
 | Interface | **React + Vite** | Fast HMR during development; the interface is state-driven, not document-driven. |
-| Core visual | **Canvas 2D** | One animation loop, no DOM churn, no WebGL context to lose. Three.js would cost more than the design needs. |
+| Core visual | **Canvas 2D** | One animation loop, no DOM churn, no WebGL context to lose. The core is 2D by design; three.js is loaded only by the Workshop, and only when you open it. |
+| 3D + CAD | **three.js · OpenCascade (WASM) · JSCAD** | OpenCascade reads STEP/IGES/BREP as real B-rep geometry; JSCAD evaluates a validated tree of primitives and booleans, so exact dimensions come out without the model ever running code. |
 | Audio | **Web Audio + MediaRecorder** | Real analyser data drives the core's waveform, rather than a decorative animation. |
 | Models | **Free tiers only**, behind one provider interface | Groq, Google Gemini, OpenRouter and a local Ollama all speak the OpenAI chat API, so a provider is data — a URL, a key and a model list — not code. Adding one is a row in a table. |
 | Speech in | **Groq Whisper** (`whisper-large-v3-turbo`) | Latency is what you feel in a voice assistant, and Groq is the fastest path from audio to text. |
@@ -104,7 +107,12 @@ src/
       descriptors.ts       the catalogue: schema + risk + description
       validate.ts          path, URL and command validation (pure, unit-tested)
       registry.ts          validate → execute → log
-      filesystem · applications · system · web · screen · terminal · power
+      filesystem · applications · system · web · screen · terminal · power · models
+    geometry/
+      parsers.ts           STL, OBJ, PLY, 3MF — written here, not trusted to a loader
+      cad.ts               STEP, IGES, BREP via OpenCascade compiled to WASM
+      build.ts             parametric CSG from a validated shape tree
+      mesh.ts              assembly, normals, volume and surface area
     platform/
       windows.ts · macos.ts · linux.ts · exec.ts (argument-array spawn)
     services/              monitoring, logging, secrets, settings, history, …
@@ -112,7 +120,7 @@ src/
   preload/                 the only bridge; a fixed list of channels
   renderer/                interface — never sees a key, never touches the OS
   shared/                  types, defaults, IPC names and the provider catalogue
-tests/                     172 tests, security paths first
+tests/                     286 tests, security paths first
 ```
 
 ---
@@ -145,8 +153,9 @@ npm run typecheck
 `npm run smoke` boots the application in a disposable data directory, runs the
 tool layer against real files, confirms that traversal, shell injection and
 dangerous URL schemes are refused, checks that the confirmation gate appears and
-that approving it actually performs the action, and writes a screenshot of every
-screen to `screenshots/`.
+that approving it actually performs the action, builds a solid and reads a real
+STEP file into the 3D viewport, and writes a screenshot of every screen to
+`screenshots/`. 46 checks; any failure exits non-zero.
 
 ### If startup fails with `ERR_MODULE_NOT_FOUND`
 
@@ -347,6 +356,8 @@ the microphone to our own window and nothing else.
 | Power | `lock_computer` `restart_computer` `shutdown_computer` | medium – **high**, opt-in |
 | Memory | `remember` `forget` `recall` | low |
 | Routines | `create_routine` `run_routine` `list_routines` `delete_routine` | low – medium |
+| 3D | `open_3d_model` `create_3d_model` `list_3d_models` | low |
+| | `export_3d_model` | medium |
 
 Plus `present_plan`, which touches nothing: it declares what JARVIS intends to do
 so you can see the plan — and approve it — before the first real action runs.
@@ -355,6 +366,48 @@ Every tool can be set to **always allow**, **always confirm** or **never** in
 Settings → Permissions.
 
 <img src="docs/images/permissions.png" alt="Per-tool permission policy in Settings" width="100%">
+
+---
+
+## The Workshop — 3D and CAD
+
+JARVIS opens 3D files and builds solids, and shows you the result in an orbit
+viewport rather than describing it.
+
+<img src="docs/images/workshop.png" alt="A STEP file open in the Workshop with live measurements" width="100%">
+
+**Reading files.** `open_3d_model` handles meshes (STL binary and ASCII, OBJ,
+PLY, 3MF) and parametric CAD (STEP, IGES, BREP). CAD is tessellated by
+OpenCascade compiled to WebAssembly — the same kernel FreeCAD is built on — so a
+STEP file is read as real boundary-representation geometry rather than guessed
+at. Drag a file onto the window, use **Open file…**, or just ask.
+
+**Building solids.** `create_3d_model` takes a list of primitives — box,
+cylinder, sphere, cone, torus, rounded box, prism — each positioned, rotated,
+scaled, and combined with `add`, `subtract` or `intersect`. A CSG kernel
+evaluates it. Dimensions are exact: a 40 × 20 × 10 plate with a Ø4 hole comes
+out at 7,874.5 mm³ against an exact 7,874.3.
+
+This is the same rule as everywhere else in JARVIS, applied to geometry: **the
+model describes, it does not execute.** It emits a zod-validated tree of shapes
+and operations, never a script for the kernel to run. So there is no sandbox to
+escape and no code path from a model response to arbitrary evaluation.
+
+**What it cannot do.** It cannot sculpt organic shapes, and it cannot turn a
+photograph into a model. Free image-to-3D services exist, but they are
+credit-metered, mostly non-commercial, and produce meshes rather than
+dimensioned CAD — so JARVIS does the thing that is actually exact instead of the
+thing that demos well.
+
+In the viewport: drag to orbit, right-drag or shift-drag to pan, scroll to zoom.
+Iso/Front/Right/Top presets, fit-to-view, wireframe overlay, bounding box, a
+ground grid scaled to the part, per-part visibility for assemblies, and live
+measurements — size on each axis, volume, surface area, triangle and vertex
+counts. **Export STL** writes the model out for slicing or printing.
+
+Geometry stays in the main process and crosses to the viewport as flat typed
+arrays, so a half-million-triangle part arrives in one copy rather than being
+rebuilt from JSON. three.js only loads when you first open the Workshop.
 
 ---
 
@@ -377,7 +430,7 @@ Settings → Permissions.
 | | |
 |---|---|
 | `Ctrl/Cmd + K` | Focus the command bar |
-| `Ctrl/Cmd + 1…5` | Command · Routines · Memory · History · Settings |
+| `Ctrl/Cmd + 1…6` | Command · Workshop · Routines · Memory · History · Settings |
 | `Ctrl/Cmd + Shift + L` | Start listening |
 | `Ctrl/Cmd + Shift + Space` | Hold to talk |
 | `Enter` / `Shift + Enter` | Send / new line |

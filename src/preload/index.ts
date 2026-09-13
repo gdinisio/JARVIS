@@ -1,7 +1,8 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import { IPC, type WindowCommand } from '@shared/ipc'
 import type { EngineEvent, HistoryEntry, Routine, Settings, Snapshot, ToolResult } from '@shared/types'
 import type { ProviderId } from '@shared/providers'
+import type { MeshPayload, ModelSummary } from '@shared/geometry'
 
 /**
  * The preload bridge.
@@ -71,6 +72,30 @@ const api = {
   openLogFolder: () => ipcRenderer.invoke(IPC.invoke.openLogFolder),
 
   captureScreen: () => ipcRenderer.invoke(IPC.invoke.captureScreen),
+
+  /** 3D workshop. Geometry is fetched on demand so the event stream stays small. */
+  models: (): Promise<{ ok: boolean; models: ModelSummary[] }> => ipcRenderer.invoke(IPC.invoke.listGeometry),
+  mesh: (id: string): Promise<{ ok: boolean; error?: string; summary?: ModelSummary } & Partial<MeshPayload>> =>
+    ipcRenderer.invoke(IPC.invoke.getMesh, { id }),
+  pickModel: (): Promise<{ ok: boolean; cancelled?: boolean; error?: string; summary?: ModelSummary }> =>
+    ipcRenderer.invoke(IPC.invoke.openModelDialog),
+  exportModel: (id: string): Promise<{ ok: boolean; cancelled?: boolean; error?: string; path?: string; bytes?: number }> =>
+    ipcRenderer.invoke(IPC.invoke.saveModelDialog, { id }),
+  closeModel: (id: string): Promise<{ ok: boolean }> => ipcRenderer.invoke(IPC.invoke.closeModel, { id }),
+
+  /**
+   * Drag-and-drop. The renderer cannot read a File's path directly under
+   * sandboxing; `webUtils` resolves it here, and only the path crosses over.
+   */
+  dropModel: (file: File): Promise<{ ok: boolean; error?: string; summary?: ModelSummary }> => {
+    let path = ''
+    try {
+      path = webUtils.getPathForFile(file)
+    } catch {
+      return Promise.resolve({ ok: false, error: 'That file could not be read from the drop.' })
+    }
+    return ipcRenderer.invoke(IPC.invoke.dropModel, { path })
+  },
   openExternal: (url: string) => ipcRenderer.invoke(IPC.invoke.openExternal, { url }),
   setListening: (listening: boolean) => ipcRenderer.invoke(IPC.invoke.setListening, { listening }),
   window: (command: WindowCommand) => ipcRenderer.invoke(IPC.invoke.window, { command }),

@@ -6,6 +6,8 @@
  * and constants live here.
  */
 
+import type { ModelSummary } from './geometry'
+
 /* ───────────────────────────── Core state ──────────────────────────────── */
 
 /** Visual + behavioural state of the JARVIS core. */
@@ -117,6 +119,10 @@ export type ToolName =
   | 'run_routine'
   | 'list_routines'
   | 'delete_routine'
+  | 'open_3d_model'
+  | 'create_3d_model'
+  | 'export_3d_model'
+  | 'list_3d_models'
 
 /**
  * Tools that are offered to the model but never touch the operating system.
@@ -132,7 +138,7 @@ export interface ToolDescriptor {
   /** Grouping used by the permissions UI. */
   category:
     | 'applications' | 'filesystem' | 'system' | 'web' | 'screen'
-    | 'terminal' | 'power' | 'memory' | 'clipboard'
+    | 'terminal' | 'power' | 'memory' | 'clipboard' | 'modelling'
   /** JSON schema (draft 2020-12 subset) describing the arguments. */
   parameters: JsonSchemaObject
   /** True when the tool works without any network/AI access. */
@@ -439,6 +445,7 @@ export type EngineEvent =
   | { type: 'routines'; routines: Routine[] }
   | { type: 'stats'; stats: SystemStats }
   | { type: 'screen-access'; active: boolean }
+  | { type: 'models'; models: ModelSummary[]; focus?: string }
   | { type: 'activate'; source: 'hotkey' | 'tray' | 'wake-word' }
   | { type: 'listen'; listening: boolean }
   | { type: 'busy'; busy: boolean }
@@ -462,4 +469,5 @@ export interface Snapshot {
   platform: NodeJS.Platform
   appVersion: string
   plan: TaskPlan | null
+  models: ModelSummary[]
 }
