@@ -1,6 +1,7 @@
 import { inflateRawSync } from 'node:zlib'
 import type { RawPart } from './mesh'
 import { ParseError } from './errors'
+import { MAX_TRIANGLES } from './mesh'
 
 export { ParseError }
 
@@ -13,7 +14,7 @@ export { ParseError }
  * and refuses a file that claims more geometry than it contains.
  */
 
-const MAX_TRIANGLES = 8_000_000
+
 
 
 
@@ -43,20 +44,25 @@ export function parseStl(buffer: Buffer, name: string): RawPart[] {
 
 function parseBinaryStl(buffer: Buffer, count: number, name: string): RawPart {
   if (count > MAX_TRIANGLES) throw new ParseError(`That STL has ${count} triangles, which is too many to display.`)
-  const positions = new Array<number>(count * 9)
-  const normals = new Array<number>(count * 9)
+
+  // The header gives the exact size, so write straight into the arrays the
+  // viewer will use. Going via a plain array costs a second copy of every
+  // coordinate and roughly triples the time on a large file.
+  const positions = new Float32Array(count * 9)
+  const normals = new Float32Array(count * 9)
+  const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength)
 
   for (let i = 0; i < count; i++) {
     const offset = 84 + i * 50
-    const nx = buffer.readFloatLE(offset)
-    const ny = buffer.readFloatLE(offset + 4)
-    const nz = buffer.readFloatLE(offset + 8)
+    const nx = view.getFloat32(offset, true)
+    const ny = view.getFloat32(offset + 4, true)
+    const nz = view.getFloat32(offset + 8, true)
     for (let vertex = 0; vertex < 3; vertex++) {
       const at = offset + 12 + vertex * 12
       const base = i * 9 + vertex * 3
-      positions[base] = buffer.readFloatLE(at)
-      positions[base + 1] = buffer.readFloatLE(at + 4)
-      positions[base + 2] = buffer.readFloatLE(at + 8)
+      positions[base] = view.getFloat32(at, true)
+      positions[base + 1] = view.getFloat32(at + 4, true)
+      positions[base + 2] = view.getFloat32(at + 8, true)
       normals[base] = nx
       normals[base + 1] = ny
       normals[base + 2] = nz
@@ -87,11 +93,18 @@ function parseAsciiStl(text: string, name: string): RawPart {
 
 /* ─────────────────────────────────── OBJ ────────────────────────────────── */
 
+/** A part still being accumulated. `RawPart` itself is read-only by the time it leaves here. */
+interface MutablePart {
+  name: string
+  positions: number[]
+  normals?: number[]
+}
+
 export function parseObj(text: string, name: string): RawPart[] {
   const vertices: number[] = []
   const vertexNormals: number[] = []
-  const parts: RawPart[] = []
-  let current: RawPart = { name, positions: [], normals: [] }
+  const parts: MutablePart[] = []
+  let current: MutablePart = { name, positions: [], normals: [] }
 
   const pushFace = (tokens: string[]) => {
     // A face is a polygon; fan-triangulate it.

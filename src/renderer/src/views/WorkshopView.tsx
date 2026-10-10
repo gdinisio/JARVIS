@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '../store/useStore'
-import { ModelViewer, type ViewerOptions, type ViewPreset } from '../components/ModelViewer'
-import { isCadFormat, type MeshPayload } from '@shared/geometry'
+import { ModelViewer, type Measurement, type ViewerOptions, type ViewPreset } from '../components/ModelViewer'
+import { isCadFormat, type MeshPayload, type ModelSummary } from '@shared/geometry'
 import type { JSX } from 'react'
 
 /**
@@ -15,12 +15,19 @@ import type { JSX } from 'react'
 
 type LoadedMesh = MeshPayload & { id: string }
 
-const PRESETS: Array<{ id: ViewPreset; label: string }> = [
-  { id: 'iso', label: 'Iso' },
-  { id: 'front', label: 'Front' },
-  { id: 'right', label: 'Right' },
-  { id: 'top', label: 'Top' }
+const PRESETS: Array<{ id: ViewPreset; label: string; key: string }> = [
+  { id: 'iso', label: 'Iso', key: '1' },
+  { id: 'front', label: 'Front', key: '2' },
+  { id: 'right', label: 'Right', key: '3' },
+  { id: 'top', label: 'Top', key: '4' }
 ]
+
+const SECTION_AXES = ['x', 'y', 'z'] as const
+
+const DEFAULT_OPTIONS: ViewerOptions = {
+  wireframe: false, grid: true, boundingBox: false, spin: false, shaded: true,
+  section: null, measuring: false
+}
 
 export function WorkshopView(): JSX.Element {
   const models = useStore((s) => s.models)
@@ -32,14 +39,15 @@ export function WorkshopView(): JSX.Element {
   const [mesh, setMesh] = useState<LoadedMesh | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [dragging, setDragging] = useState(false)
   const [hidden, setHidden] = useState<Set<number>>(new Set())
   const [fitSignal, setFitSignal] = useState(0)
+  const [captureSignal, setCaptureSignal] = useState(0)
   const [preset, setPreset] = useState<{ name: ViewPreset; signal: number }>({ name: 'iso', signal: 0 })
-  const [options, setOptions] = useState<ViewerOptions>({
-    wireframe: false, grid: true, boundingBox: false, spin: false, shaded: true
-  })
+  const [options, setOptions] = useState<ViewerOptions>(DEFAULT_OPTIONS)
+  const [measurement, setMeasurement] = useState<Measurement | null>(null)
 
   const dragDepth = useRef(0)
   const summary = useMemo(() => models.find((model) => model.id === activeId) ?? null, [models, activeId])
@@ -51,6 +59,9 @@ export function WorkshopView(): JSX.Element {
       return
     }
     let cancelled = false
+    // Drop the old geometry immediately so nothing stale is on screen while
+    // the new model is read.
+    setMesh(null)
     setLoading(true)
     setError(null)
     void window.jarvis.mesh(activeId).then((result) => {
@@ -92,9 +103,16 @@ export function WorkshopView(): JSX.Element {
     try {
       const result = await window.jarvis.exportModel(summary.id)
       if (!result.ok && !result.cancelled) setError(result.error ?? 'That model could not be exported.')
+      else if (result.ok) setNotice(`Saved to ${result.path}.`)
     } finally {
       setBusy(false)
     }
+  }, [summary])
+
+  const onCapture = useCallback(async (dataUrl: string) => {
+    const result = await window.jarvis.saveModelImage(summary?.name ?? 'model', dataUrl)
+    if (!result.ok && !result.cancelled) setError(result.error ?? 'That image could not be saved.')
+    else if (result.ok) setNotice(`Saved to ${result.path}.`)
   }, [summary])
 
   const close = useCallback(async (id: string) => {
@@ -128,6 +146,46 @@ export function WorkshopView(): JSX.Element {
       return next
     })
   }, [])
+
+  const toggleSection = useCallback(() => {
+    setOptions((current) => ({
+      ...current,
+      section: current.section ? null : { axis: 'z', position: 0.5, flip: false }
+    }))
+  }, [])
+
+  /* Viewport shortcuts. Single keys, so they stand down while you are typing. */
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.ctrlKey || event.metaKey || event.altKey) return
+      if (event.target instanceof HTMLElement && /input|textarea|select/i.test(event.target.tagName)) return
+
+      const match = PRESETS.find((item) => item.key === event.key)
+      if (match) {
+        setPreset((current) => ({ name: match.id, signal: current.signal + 1 }))
+        return
+      }
+      switch (event.key.toLowerCase()) {
+        case 'f': setFitSignal((value) => value + 1); break
+        case 'w': setOptions((o) => ({ ...o, wireframe: !o.wireframe })); break
+        case 'g': setOptions((o) => ({ ...o, grid: !o.grid })); break
+        case 'b': setOptions((o) => ({ ...o, boundingBox: !o.boundingBox })); break
+        case 'r': setOptions((o) => ({ ...o, spin: !o.spin })); break
+        case 'm': setOptions((o) => ({ ...o, measuring: !o.measuring })); break
+        case 's': toggleSection(); break
+        default: return
+      }
+      event.preventDefault()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [toggleSection])
+
+  useEffect(() => {
+    if (!notice) return
+    const timer = setTimeout(() => setNotice(null), 4000)
+    return () => clearTimeout(timer)
+  }, [notice])
 
   const parts = mesh?.groups.length ? mesh.groups : summary ? [{ name: summary.name, start: 0, count: 0 }] : []
 
@@ -211,6 +269,7 @@ export function WorkshopView(): JSX.Element {
         )}
 
         {summary && <Measurements summary={summary} />}
+        {measurement && <MeasureReadout measurement={measurement} />}
       </aside>
 
       <div className="workshop-stage">
@@ -220,31 +279,71 @@ export function WorkshopView(): JSX.Element {
               <button
                 key={item.id}
                 className="btn tiny"
+                title={`${item.label} view (${item.key})`}
                 onClick={() => setPreset({ name: item.id, signal: preset.signal + 1 })}
                 disabled={!summary}
               >
                 {item.label}
               </button>
             ))}
-            <button className="btn tiny" onClick={() => setFitSignal((value) => value + 1)} disabled={!summary}>
+            <button className="btn tiny" title="Fit to view (F)" onClick={() => setFitSignal((value) => value + 1)} disabled={!summary}>
               Fit
             </button>
           </div>
 
           <div className="toolbar-group">
             <Toggle label="Shaded" on={options.shaded} onChange={(shaded) => setOptions((o) => ({ ...o, shaded }))} />
-            <Toggle label="Wireframe" on={options.wireframe} onChange={(wireframe) => setOptions((o) => ({ ...o, wireframe }))} />
-            <Toggle label="Grid" on={options.grid} onChange={(grid) => setOptions((o) => ({ ...o, grid }))} />
-            <Toggle label="Bounds" on={options.boundingBox} onChange={(boundingBox) => setOptions((o) => ({ ...o, boundingBox }))} />
-            <Toggle label="Spin" on={options.spin} onChange={(spin) => setOptions((o) => ({ ...o, spin }))} />
+            <Toggle label="Wireframe" hint="W" on={options.wireframe} onChange={(wireframe) => setOptions((o) => ({ ...o, wireframe }))} />
+            <Toggle label="Grid" hint="G" on={options.grid} onChange={(grid) => setOptions((o) => ({ ...o, grid }))} />
+            <Toggle label="Bounds" hint="B" on={options.boundingBox} onChange={(boundingBox) => setOptions((o) => ({ ...o, boundingBox }))} />
+            <Toggle label="Spin" hint="R" on={options.spin} onChange={(spin) => setOptions((o) => ({ ...o, spin }))} />
+            <Toggle label="Section" hint="S" on={!!options.section} onChange={toggleSection} />
+            <Toggle label="Measure" hint="M" on={options.measuring} onChange={(measuring) => setOptions((o) => ({ ...o, measuring }))} />
           </div>
 
           <div className="toolbar-group">
+            <button className="btn tiny" onClick={() => setCaptureSignal((value) => value + 1)} disabled={!summary || busy}>
+              Save image
+            </button>
             <button className="btn tiny" onClick={exportStl} disabled={!summary || busy}>Export STL</button>
           </div>
         </div>
 
-        <div className="viewport">
+        {options.section && (
+          <div className="workshop-section-bar">
+            <span className="label">Section</span>
+            {SECTION_AXES.map((axis) => (
+              <button
+                key={axis}
+                className={`btn tiny ${options.section?.axis === axis ? 'is-on' : ''}`}
+                onClick={() => setOptions((o) => (o.section ? { ...o, section: { ...o.section, axis } } : o))}
+              >
+                {axis.toUpperCase()}
+              </button>
+            ))}
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.005}
+              value={options.section.position}
+              aria-label="Section plane position"
+              onChange={(event) =>
+                setOptions((o) => (o.section ? { ...o, section: { ...o.section, position: Number(event.target.value) } } : o))
+              }
+            />
+            <button
+              className="btn tiny"
+              title="Show the other half"
+              onClick={() => setOptions((o) => (o.section ? { ...o, section: { ...o.section, flip: !o.section.flip } } : o))}
+            >
+              Flip
+            </button>
+          </div>
+        )}
+
+        {/* The ids let a test assert that what is drawn is what is selected. */}
+        <div className="viewport" data-model={summary?.id ?? ''} data-mesh={mesh?.id ?? ''}>
           {summary ? (
             <ModelViewer
               summary={summary}
@@ -252,8 +351,11 @@ export function WorkshopView(): JSX.Element {
               options={options}
               fitSignal={fitSignal}
               preset={preset}
+              captureSignal={captureSignal}
               hidden={hidden}
               accent={accent}
+              onMeasure={setMeasurement}
+              onCapture={onCapture}
             />
           ) : (
             <EmptyStage onOpen={open} busy={busy} />
@@ -262,19 +364,22 @@ export function WorkshopView(): JSX.Element {
           {loading && <div className="viewport-badge">Loading geometry…</div>}
           {summary && (
             <div className="viewport-hint">
-              Drag to orbit · Right-drag or Shift-drag to pan · Scroll to zoom
+              {options.measuring
+                ? 'Click two points on the model to measure between them'
+                : 'Drag to orbit · Right-drag or Shift-drag to pan · Scroll to zoom'}
             </div>
           )}
           {dragging && <div className="viewport-drop">Release to open</div>}
         </div>
 
         {error && <div className="workshop-error" role="alert">{error}</div>}
+        {notice && !error && <div className="workshop-notice" role="status">{notice}</div>}
       </div>
     </section>
   )
 }
 
-function Measurements({ summary }: { summary: NonNullable<ReturnType<typeof useStore.getState>['models']>[number] }): JSX.Element {
+function Measurements({ summary }: { summary: ModelSummary }): JSX.Element {
   const [x, y, z] = summary.bounds.size
   const volume = summary.stats.volumeMm3
   return (
@@ -294,6 +399,24 @@ function Measurements({ summary }: { summary: NonNullable<ReturnType<typeof useS
   )
 }
 
+function MeasureReadout({ measurement }: { measurement: Measurement }): JSX.Element {
+  return (
+    <div className="workshop-measure is-live">
+      <div className="label">Between points</div>
+      {measurement.distance === null ? (
+        <p className="view-sub">First point set. Click a second.</p>
+      ) : (
+        <>
+          <Row label="Distance" value={`${fmt(measurement.distance)} mm`} />
+          <Row label="ΔX" value={`${fmt(measurement.delta![0])} mm`} />
+          <Row label="ΔY" value={`${fmt(measurement.delta![1])} mm`} />
+          <Row label="ΔZ" value={`${fmt(measurement.delta![2])} mm`} />
+        </>
+      )}
+    </div>
+  )
+}
+
 function Row({ label, value, title, mono }: { label: string; value: string; title?: string; mono?: boolean }): JSX.Element {
   return (
     <div className="measure-row">
@@ -303,22 +426,12 @@ function Row({ label, value, title, mono }: { label: string; value: string; titl
   )
 }
 
-/**
- * Keeps the end of a path, which is the informative half.
- *
- * Done here rather than with CSS: `direction: rtl` truncation reorders the
- * trailing separator and shows "…s/fixtures/plate.step/".
- */
-function tail(path: string, max = 26): string {
-  if (path.length <= max) return path
-  return `…${path.slice(path.length - max + 1)}`
-}
-
-function Toggle({ label, on, onChange }: { label: string; on: boolean; onChange: (value: boolean) => void }): JSX.Element {
+function Toggle({ label, hint, on, onChange }: { label: string; hint?: string; on: boolean; onChange: (value: boolean) => void }): JSX.Element {
   return (
     <button
       className={`btn tiny ${on ? 'is-on' : ''}`}
       aria-pressed={on}
+      title={hint ? `${label} (${hint})` : label}
       onClick={() => onChange(!on)}
     >
       {label}
@@ -340,7 +453,7 @@ function EmptyStage({ onOpen, busy }: { onOpen: () => void; busy: boolean }): JS
       <ul className="viewport-empty-hints">
         <li>“Open the bracket STEP file in my Downloads.”</li>
         <li>“Build a 40 by 20 by 10 plate with a 4 mm hole through the middle.”</li>
-        <li>“Make a hex nut, 13 mm across the flats, 8 mm tall, M8 thread clearance.”</li>
+        <li>“Make a flange, 100 mm across, with six bolt holes on a 70 mm circle.”</li>
       </ul>
     </div>
   )
@@ -350,4 +463,15 @@ function fmt(value: number, places = 2): string {
   if (!Number.isFinite(value)) return '—'
   const rounded = Number(value.toFixed(places))
   return rounded.toLocaleString(undefined, { maximumFractionDigits: places })
+}
+
+/**
+ * Keeps the end of a path, which is the informative half.
+ *
+ * Done here rather than with CSS: `direction: rtl` truncation reorders the
+ * trailing separator and shows "…s/fixtures/plate.step/".
+ */
+function tail(path: string, max = 26): string {
+  if (path.length <= max) return path
+  return `…${path.slice(path.length - max + 1)}`
 }

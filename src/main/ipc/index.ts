@@ -1,3 +1,4 @@
+import { writeFile } from 'node:fs/promises'
 import { ipcMain, shell, app, dialog } from 'electron'
 import type { Snapshot, SubmitRequest, Settings } from '@shared/types'
 import type { ProviderId } from '@shared/providers'
@@ -325,6 +326,29 @@ export function registerIpc(): void {
   handle<{ id: string }>(IPC.invoke.closeModel, async (payload) => ({
     ok: closeModel(String(payload?.id ?? ''))
   }))
+
+  /**
+   * A PNG of the viewport. The renderer hands over a data URL and nothing
+   * else — it never learns where the file went, only that it was written.
+   */
+  handle<{ name?: string; dataUrl?: string }>(IPC.invoke.saveModelImage, async (payload) => {
+    const match = /^data:image\/png;base64,([A-Za-z0-9+/=]+)$/.exec(String(payload?.dataUrl ?? ''))
+    if (!match) return { ok: false, error: 'That capture was not a PNG.' }
+    const bytes = Buffer.from(match[1], 'base64')
+    if (!bytes.length || bytes.length > 64 * 1024 * 1024) return { ok: false, error: 'That capture was not a usable size.' }
+
+    const win = getWindow()
+    const safe = String(payload?.name ?? 'model').replace(/[^\w .-]/g, '_').slice(0, 60) || 'model'
+    const result = await dialog.showSaveDialog(win ?? undefined!, {
+      title: 'Save viewport image',
+      defaultPath: `${safe}.png`,
+      filters: [{ name: 'PNG image', extensions: ['png'] }]
+    })
+    if (result.canceled || !result.filePath) return { ok: false, cancelled: true }
+    await writeFile(result.filePath, bytes)
+    bus.say('SYSTEM', `Saved a view of ${safe} to ${result.filePath}.`)
+    return { ok: true, path: result.filePath }
+  })
 
   handle<{ id?: string; name?: string }>(IPC.invoke.saveModelDialog, async (payload) => {
     const entry = getModel(String(payload?.id ?? '')) ?? null

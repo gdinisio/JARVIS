@@ -39,6 +39,7 @@ export const IPC = {
     saveModelDialog: 'jarvis:model:save-as',
     dropModel: 'jarvis:model:drop',
     closeModel: 'jarvis:model:close',
+    saveModelImage: 'jarvis:model:image',
     openExternal: 'jarvis:open-external'
   },
   /** Main → renderer, push. */

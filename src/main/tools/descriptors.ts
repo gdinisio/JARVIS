@@ -19,22 +19,44 @@ const pathArg = z.string().min(1).max(1024)
  * gives it dimensions; it cannot describe arbitrary geometry, and it certainly
  * cannot supply code for the kernel to run.
  */
+const point2dArg = z.tuple([z.number(), z.number()])
+
+const repeatArg = z.object({
+  count: z.number().int().min(1).max(256).describe('How many copies in total, including the original.'),
+  step: z.tuple([z.number(), z.number(), z.number()]).optional()
+    .describe('Straight-line pattern: how far each copy moves from the one before, e.g. [10, 0, 0] for a 10 mm pitch.'),
+  circle: z.number().min(0).max(10000).optional()
+    .describe('Bolt-circle pattern: place copies evenly on a circle of this radius about the axis. Six holes on a 70 mm bolt circle is count 6, circle 35.'),
+  axis: z.enum(['x', 'y', 'z']).optional().describe('Axis a circular pattern turns about. Defaults to z.'),
+  angle: z.number().min(-360).max(360).optional()
+    .describe('Total sweep of a circular pattern in degrees. Defaults to a full turn; a partial sweep puts a copy at each end.')
+})
+
 const shapeArg = z.object({
-  shape: z.enum(['box', 'cylinder', 'sphere', 'cone', 'torus', 'rounded_box', 'prism'])
-    .describe('Which primitive to build.'),
+  shape: z.enum([
+    'box', 'cylinder', 'sphere', 'cone', 'torus',
+    'rounded_box', 'rounded_cylinder', 'prism', 'profile', 'revolve'
+  ]).describe('Which solid to build. Use profile for an outline that is not a primitive, and revolve for anything turned on a lathe.'),
   size: z.tuple([z.number(), z.number(), z.number()]).optional()
     .describe('Width, depth and height for box and rounded_box.'),
   radius: z.number().positive().max(10000).optional()
-    .describe('Radius for sphere, cylinder, prism; outer radius for torus; base radius for cone.'),
+    .describe('Radius for sphere, cylinder, rounded_cylinder, prism; outer radius for torus; base radius for cone.'),
   radius_top: z.number().min(0).max(10000).optional().describe('Top radius of a cone. 0 gives a point.'),
   radius_bottom: z.number().min(0).max(10000).optional().describe('Bottom radius of a cone.'),
-  height: z.number().positive().max(10000).optional().describe('Height of cylinder, cone or prism.'),
+  height: z.number().positive().max(10000).optional().describe('Height of cylinder, rounded_cylinder, cone, prism or profile.'),
   inner_radius: z.number().positive().max(10000).optional().describe('Tube radius of a torus.'),
-  round_radius: z.number().positive().max(1000).optional().describe('Corner radius of a rounded_box.'),
+  round_radius: z.number().positive().max(1000).optional().describe('Corner radius of a rounded_box or rounded_cylinder.'),
   sides: z.number().int().min(3).max(64).optional().describe('Number of sides on a prism, e.g. 6 for a hexagon.'),
+  points: z.array(point2dArg).min(3).max(512).optional()
+    .describe('Closed outline as [x, y] pairs, in order. For profile this is the cross-section, extruded by height and centred on the origin. For revolve it is the lathe profile: x is the distance from the axis of rotation and y the height, so every x must be zero or greater.'),
+  angle: z.number().min(1).max(360).optional().describe('Sweep of a partial revolve in degrees. Defaults to a full turn.'),
   at: z.tuple([z.number(), z.number(), z.number()]).optional().describe('Centre position [x, y, z]. Defaults to the origin.'),
   rotate: z.tuple([z.number(), z.number(), z.number()]).optional().describe('Rotation in degrees about x, y and z.'),
   scale: z.tuple([z.number(), z.number(), z.number()]).optional().describe('Non-uniform scale factors.'),
+  repeat: repeatArg.optional()
+    .describe('Pattern this shape into several copies. Applied after at/rotate, so the shape is placed first and the pattern walks from there.'),
+  mirror: z.enum(['x', 'y', 'z']).optional()
+    .describe('Also keep a mirrored copy of this shape across the named plane through the origin.'),
   op: z.enum(['add', 'subtract', 'intersect']).optional()
     .describe('How this shape combines with everything before it. Use subtract to cut holes and pockets. Defaults to add.'),
   name: z.string().max(40).optional().describe('Label for this feature, shown in the parts list.')

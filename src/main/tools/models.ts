@@ -4,7 +4,7 @@ import { isCadFormat, isModelFile, MODEL_EXTENSIONS, type MeshBounds, type Model
 import { validatePath } from './validate'
 import { ok, fail, blocked, type ToolHandler } from './context'
 import { createModel, exportModel, listModels, loadModelFile, GeometryError, resolveModel } from '../geometry'
-import type { ModelSpec, ShapeSpec } from '../geometry/build'
+import type { ModelSpec, RepeatSpec, ShapeSpec } from '../geometry/build'
 import { logger } from '../services/logging'
 
 /**
@@ -93,9 +93,13 @@ interface RawShape {
   inner_radius?: number
   round_radius?: number
   sides?: number
+  points?: Array<[number, number]>
+  angle?: number
   at?: [number, number, number]
   rotate?: [number, number, number]
   scale?: [number, number, number]
+  repeat?: RepeatSpec
+  mirror?: ShapeSpec['mirror']
   op?: ShapeSpec['op']
   name?: string
 }
@@ -111,9 +115,13 @@ function toShapeSpec(raw: RawShape): ShapeSpec {
     ...(raw.inner_radius !== undefined ? { innerRadius: raw.inner_radius } : {}),
     ...(raw.round_radius !== undefined ? { roundRadius: raw.round_radius } : {}),
     ...(raw.sides !== undefined ? { sides: raw.sides } : {}),
+    ...(raw.points ? { points: raw.points } : {}),
+    ...(raw.angle !== undefined ? { angle: raw.angle } : {}),
     ...(raw.at ? { at: raw.at } : {}),
     ...(raw.rotate ? { rotate: raw.rotate } : {}),
     ...(raw.scale ? { scale: raw.scale } : {}),
+    ...(raw.repeat ? { repeat: raw.repeat } : {}),
+    ...(raw.mirror ? { mirror: raw.mirror } : {}),
     ...(raw.op ? { op: raw.op } : {}),
     ...(raw.name ? { name: raw.name } : {})
   }

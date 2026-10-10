@@ -39,6 +39,9 @@ export async function runSmoke(window: BrowserWindow): Promise<void> {
 
   const shoot = async (name: string) => {
     try {
+      // capturePage can hand back the previously composited frame, so give the
+      // window a moment to paint whatever the last interaction changed.
+      await wait(450)
       const image = await window.webContents.capturePage()
       await writeFile(join(outDir, `${name}.png`), image.toPNG())
       return true
@@ -232,6 +235,76 @@ export async function runSmoke(window: BrowserWindow): Promise<void> {
     )
     record('measurements are shown alongside the model', measured.includes('40'), measured)
 
+    // A part that needs the whole vocabulary: a turned boss, a patterned bolt
+    // circle, and a profile that is not a primitive.
+    const flange = await executeTool(
+      'create_3d_model',
+      {
+        name: 'Smoke Flange',
+        shapes: [
+          { shape: 'cylinder', radius: 50, height: 10 },
+          { shape: 'cylinder', radius: 10, height: 30, op: 'subtract' },
+          { shape: 'cylinder', radius: 3.25, height: 30, op: 'subtract', repeat: { count: 6, circle: 35 } },
+          { shape: 'revolve', points: [[10, 5], [16, 5], [16, 22], [10, 22]] }
+        ]
+      },
+      context
+    )
+    const flangeData = flange.data as { size_mm?: number[]; volume_mm3?: number } | undefined
+    record('bolt circles, revolves and patterns build together', flange.ok && flangeData?.size_mm?.[0] === 100, flange.summary)
+
+    await wait(1600)
+    record('the patterned part renders', await evaluate<boolean>(
+      `(() => { const c = document.querySelector('.viewport-canvas canvas'); return !!c && c.width > 100 })()`
+    ))
+    record('workshop shows a generated part', await shoot('16-workshop-flange'))
+
+    /* Section, wireframe and the orientation gizmo are all live controls. */
+    await evaluate(`[...document.querySelectorAll('.workshop-toolbar .btn')].find((b) => b.textContent === 'Section')?.click()`)
+    await wait(900)
+    const sectionBar = await evaluate<boolean>(`!!document.querySelector('.workshop-section-bar input[type=range]')`)
+    record('section control appears', sectionBar)
+    await evaluate(`(() => {
+      const input = document.querySelector('.workshop-section-bar input[type=range]')
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
+      setter.call(input, '0.22')
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })()`)
+    await wait(900)
+    record('sectioned view renders', await shoot('17-workshop-section'))
+    await evaluate(`[...document.querySelectorAll('.workshop-toolbar .btn')].find((b) => b.textContent === 'Section')?.click()`)
+
+    await evaluate(`[...document.querySelectorAll('.workshop-toolbar .btn')].find((b) => b.textContent === 'Wireframe')?.click()`)
+    await wait(800)
+    record('wireframe overlay renders', await shoot('18-workshop-wireframe'))
+    await evaluate(`[...document.querySelectorAll('.workshop-toolbar .btn')].find((b) => b.textContent === 'Wireframe')?.click()`)
+    await wait(400)
+
+    /* Measuring: two clicks on the part must produce a real distance. */
+    await evaluate(`[...document.querySelectorAll('.workshop-toolbar .btn')].find((b) => b.textContent === 'Measure')?.click()`)
+    await wait(600)
+    await evaluate(`(() => {
+      const canvas = document.querySelector('.viewport-canvas canvas')
+      const rect = canvas.getBoundingClientRect()
+      const click = (x, y) => {
+        for (const type of ['pointerdown', 'pointerup']) {
+          canvas.dispatchEvent(new PointerEvent(type, { clientX: x, clientY: y, bubbles: true }))
+        }
+      }
+      // Two points across the face of the flange, left of centre and right.
+      click(rect.left + rect.width * 0.42, rect.top + rect.height * 0.55)
+      click(rect.left + rect.width * 0.62, rect.top + rect.height * 0.55)
+    })()`)
+    await wait(700)
+    const picked = await evaluate<string>(
+      `document.querySelector('.workshop-measure.is-live .measure-value')?.textContent ?? ''`
+    )
+    const distance = Number.parseFloat(picked)
+    record('measuring two points reports a real distance', Number.isFinite(distance) && distance > 1, picked)
+    record('measurement overlay renders', await shoot('19-workshop-measure'))
+    await evaluate(`[...document.querySelectorAll('.workshop-toolbar .btn')].find((b) => b.textContent === 'Measure')?.click()`)
+    await wait(300)
+
     const fixture = join(process.cwd(), 'tests', 'fixtures', 'plate.step')
     const cad = await executeTool('open_3d_model', { path: fixture }, context)
     record('open_3d_model reads a STEP file through OpenCascade', cad.ok, cad.summary)
@@ -240,6 +313,25 @@ export async function runSmoke(window: BrowserWindow): Promise<void> {
       `(() => { const c = document.querySelector('.viewport-canvas canvas'); return !!c && c.width > 100 })()`
     ))
     record('workshop shows the CAD file', await shoot('15-workshop-cad'))
+
+    /* A section must survive switching to a different model. */
+    await evaluate(`[...document.querySelectorAll('.workshop-toolbar .btn')].find((b) => b.textContent === 'Section')?.click()`)
+    await wait(700)
+    await evaluate(`document.querySelectorAll('.workshop-item')[1].click()`)
+    await wait(1400)
+    const sectionHeld = await evaluate<boolean>(
+      `!!document.querySelector('.workshop-section-bar') && [...document.querySelectorAll('.workshop-toolbar .btn')].some((b) => b.textContent === 'Section' && b.getAttribute('aria-pressed') === 'true')`
+    )
+    record('a section survives switching models', sectionHeld)
+    // The geometry on screen must belong to the model the list says is selected.
+    const matched = await evaluate<boolean>(
+      `(() => { const v = document.querySelector('.viewport'); return !!v?.dataset.model && v.dataset.model === v.dataset.mesh })()`
+    )
+    record('the viewport shows the model the list says is selected', matched)
+    record('the other model renders sectioned', await shoot('20-workshop-section-switch'))
+    await evaluate(`[...document.querySelectorAll('.workshop-toolbar .btn')].find((b) => b.textContent === 'Section')?.click()`)
+    await evaluate(`document.querySelectorAll('.workshop-item')[0].click()`)
+    await wait(900)
 
     const exported = await executeTool('export_3d_model', { path: '~/jarvis-smoke/plate.stl' }, context)
     record('export_3d_model writes an STL', exported.ok, exported.summary)

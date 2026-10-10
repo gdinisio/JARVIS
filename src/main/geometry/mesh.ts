@@ -1,4 +1,8 @@
 import type { MeshBounds, MeshPayload, MeshStats } from '@shared/geometry'
+import { GeometryError } from './errors'
+
+/** Above this the viewport stops being interactive, so it is refused instead. */
+export const MAX_TRIANGLES = 8_000_000
 
 /**
  * Mesh assembly and measurement.
@@ -9,9 +13,9 @@ import type { MeshBounds, MeshPayload, MeshStats } from '@shared/geometry'
 
 export interface RawPart {
   name: string
-  positions: number[]
-  normals?: number[]
-  indices?: number[]
+  positions: ArrayLike<number>
+  normals?: ArrayLike<number>
+  indices?: ArrayLike<number>
 }
 
 export function boundsOf(positions: ArrayLike<number>): MeshBounds {
@@ -100,39 +104,63 @@ export function computeNormals(positions: Float32Array, indices: Uint32Array): F
   return normals
 }
 
-/** Combines parsed parts into one indexed mesh with per-part groups. */
+/**
+ * Combines parsed parts into one indexed mesh with per-part groups.
+ *
+ * Sized first, then filled. The obvious version — pushing each part onto a
+ * plain array — overflows the call stack somewhere around seven thousand
+ * triangles, which is smaller than almost any real model, and holds every
+ * coordinate twice while it converts. Measuring first costs one extra pass
+ * over the part list and nothing over the data.
+ */
 export function assemble(parts: RawPart[]): { payload: MeshPayload; bounds: MeshBounds; stats: MeshStats } {
-  const positions: number[] = []
-  const normals: number[] = []
-  const indices: number[] = []
-  const groups: MeshPayload['groups'] = []
+  let vertexCount = 0
+  let indexCount = 0
+  let haveAllNormals = parts.length > 0
 
   for (const part of parts) {
-    const vertexOffset = positions.length / 3
-    const indexStart = indices.length
-
-    positions.push(...part.positions)
-    if (part.normals?.length === part.positions.length) normals.push(...part.normals)
-
-    if (part.indices?.length) {
-      for (const index of part.indices) indices.push(index + vertexOffset)
-    } else {
-      const count = part.positions.length / 3
-      for (let i = 0; i < count; i++) indices.push(vertexOffset + i)
-    }
-    groups.push({ name: part.name, start: indexStart, count: indices.length - indexStart })
+    const vertices = part.positions.length / 3
+    vertexCount += vertices
+    indexCount += part.indices?.length ?? vertices
+    if (part.normals?.length !== part.positions.length) haveAllNormals = false
   }
 
-  const positionArray = new Float32Array(positions)
-  const indexArray = new Uint32Array(indices)
-  const normalArray =
-    normals.length === positions.length ? new Float32Array(normals) : computeNormals(positionArray, indexArray)
+  if (indexCount / 3 > MAX_TRIANGLES) {
+    throw new GeometryError(
+      `That model has about ${Math.round(indexCount / 3 / 1e6)} million triangles, which is more than JARVIS will display.`
+    )
+  }
 
+  const positionArray = new Float32Array(vertexCount * 3)
+  const indexArray = new Uint32Array(indexCount)
+  const normalArray = haveAllNormals ? new Float32Array(vertexCount * 3) : null
+  const groups: MeshPayload['groups'] = []
+
+  let vertexOffset = 0
+  let writeIndex = 0
+
+  for (const part of parts) {
+    const indexStart = writeIndex
+    positionArray.set(part.positions, vertexOffset * 3)
+    if (normalArray && part.normals) normalArray.set(part.normals, vertexOffset * 3)
+
+    const vertices = part.positions.length / 3
+    if (part.indices?.length) {
+      for (let i = 0; i < part.indices.length; i++) indexArray[writeIndex++] = part.indices[i] + vertexOffset
+    } else {
+      for (let i = 0; i < vertices; i++) indexArray[writeIndex++] = vertexOffset + i
+    }
+
+    groups.push({ name: part.name, start: indexStart, count: writeIndex - indexStart })
+    vertexOffset += vertices
+  }
+
+  const normals = normalArray ?? computeNormals(positionArray, indexArray)
   const bounds = boundsOf(positionArray)
   const { volume, area } = measure(positionArray, indexArray)
 
   return {
-    payload: { positions: positionArray, normals: normalArray, indices: indexArray, groups },
+    payload: { positions: positionArray, normals, indices: indexArray, groups },
     bounds,
     stats: {
       triangles: indexArray.length / 3,

@@ -82,6 +82,11 @@ const api = {
   exportModel: (id: string): Promise<{ ok: boolean; cancelled?: boolean; error?: string; path?: string; bytes?: number }> =>
     ipcRenderer.invoke(IPC.invoke.saveModelDialog, { id }),
   closeModel: (id: string): Promise<{ ok: boolean }> => ipcRenderer.invoke(IPC.invoke.closeModel, { id }),
+  saveModelImage: (
+    name: string,
+    dataUrl: string
+  ): Promise<{ ok: boolean; cancelled?: boolean; error?: string; path?: string }> =>
+    ipcRenderer.invoke(IPC.invoke.saveModelImage, { name, dataUrl }),
 
   /**
    * Drag-and-drop. The renderer cannot read a File's path directly under

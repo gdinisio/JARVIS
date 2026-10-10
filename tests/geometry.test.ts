@@ -135,6 +135,55 @@ describe('mesh parsers', () => {
   })
 })
 
+describe('large meshes', () => {
+  // The naive assembly — pushing each part onto a plain array — overflows the
+  // call stack at roughly seven thousand triangles, which is smaller than
+  // almost any real model. These sizes are the point of the test.
+  it('assembles a mesh far larger than the call stack allows to be spread', () => {
+    const triangles = 200_000
+    const positions = new Float32Array(triangles * 9)
+    for (let i = 0; i < positions.length; i += 1) positions[i] = (i % 97) - 48
+    const { stats, payload } = assemble([{ name: 'big', positions }])
+    expect(stats.triangles).toBe(triangles)
+    expect(payload.indices.length).toBe(triangles * 3)
+    expect(payload.normals.length).toBe(positions.length)
+  })
+
+  it('assembles many parts without losing the index offsets', () => {
+    const parts = Array.from({ length: 50 }, (_, part) => ({
+      name: `part ${part}`,
+      positions: new Float32Array([part, 0, 0, part + 1, 0, 0, part, 1, 0])
+    }))
+    const { payload, stats, bounds } = assemble(parts)
+    expect(stats.parts).toBe(50)
+    expect(payload.groups).toHaveLength(50)
+    // Each part's indices must point at its own vertices, not the first part's.
+    expect(payload.indices[payload.indices.length - 3]).toBe(147)
+    expect(bounds.max[0]).toBeCloseTo(50, 5)
+  })
+
+  it('reads a large binary STL back with the right triangle count', () => {
+    const triangles = 60_000
+    const buffer = Buffer.alloc(84 + triangles * 50)
+    buffer.writeUInt32LE(triangles, 80)
+    for (let i = 0; i < triangles; i += 1) {
+      const offset = 84 + i * 50
+      buffer.writeFloatLE(0, offset + 8)
+      buffer.writeFloatLE(i % 100, offset + 12)
+      buffer.writeFloatLE(1, offset + 24)
+      buffer.writeFloatLE(1, offset + 40)
+    }
+    const { stats } = assemble(parseStl(buffer, 'big'))
+    expect(stats.triangles).toBe(triangles)
+  })
+
+  it('refuses a mesh beyond what the viewport can display', () => {
+    const buffer = Buffer.alloc(84)
+    buffer.writeUInt32LE(50_000_000, 80)
+    expect(() => parseStl(buffer, 'vast')).toThrow(/too many|does not look/i)
+  })
+})
+
 describe('parametric build', () => {
   it('produces exact dimensions', () => {
     const built = buildModel({ name: 'plate', shapes: [{ shape: 'box', size: [40, 20, 10] }] })
@@ -234,6 +283,125 @@ describe('parametric build', () => {
 
   it('refuses dimensions outside the sane range instead of hanging the kernel', () => {
     expect(() => buildModel({ name: 'vast', shapes: [{ shape: 'box', size: [1e9, 1, 1] }] })).toThrow()
+  })
+})
+
+describe('patterns and profiles', () => {
+  it('puts six bolt holes on a bolt circle', () => {
+    const built = buildModel({
+      name: 'flange',
+      shapes: [
+        { shape: 'cylinder', radius: 50, height: 10 },
+        { shape: 'cylinder', radius: 3.25, height: 20, op: 'subtract', repeat: { count: 6, circle: 35 } }
+      ]
+    })
+    const { stats } = assemble(built.parts)
+    // Disc minus six holes, within the error a 64-segment circle introduces.
+    const disc = Math.PI * 50 * 50 * 10
+    const holes = 6 * Math.PI * 3.25 * 3.25 * 10
+    expect(stats.volumeMm3).toBeGreaterThan((disc - holes) * 0.99)
+    expect(stats.volumeMm3).toBeLessThan((disc - holes) * 1.01)
+  })
+
+  it('spaces a linear pattern by its step', () => {
+    const built = buildModel({
+      name: 'strip',
+      shapes: [{ shape: 'box', size: [4, 4, 4], at: [-20, 0, 0], repeat: { count: 5, step: [10, 0, 0] } }]
+    })
+    const { bounds } = assemble(built.parts)
+    // Five boxes from x = -20 to x = 20, each 4 wide.
+    expect(bounds.min[0]).toBeCloseTo(-22, 5)
+    expect(bounds.max[0]).toBeCloseTo(22, 5)
+  })
+
+  it('mirrors a feature across a plane', () => {
+    const built = buildModel({
+      name: 'tabs',
+      shapes: [{ shape: 'box', size: [10, 10, 4], at: [20, 0, 0], mirror: 'x' }]
+    })
+    const { bounds, stats } = assemble(built.parts)
+    expect(bounds.min[0]).toBeCloseTo(-25, 5)
+    expect(bounds.max[0]).toBeCloseTo(25, 5)
+    expect(stats.volumeMm3).toBeCloseTo(800, 3)
+  })
+
+  it('extrudes an arbitrary outline exactly', () => {
+    // An L: 40x5 foot plus a 5x25 upright, extruded 20 deep.
+    const built = buildModel({
+      name: 'L',
+      shapes: [{ shape: 'profile', height: 20, points: [[0, 0], [40, 0], [40, 5], [5, 5], [5, 30], [0, 30]] }]
+    })
+    const { bounds, stats } = assemble(built.parts)
+    expect(stats.volumeMm3).toBeCloseTo(6500, 3)
+    expect(bounds.size[2]).toBeCloseTo(20, 5)
+  })
+
+  it('revolves a lathe profile about the z axis', () => {
+    // A 4 mm wall ring from radius 10 to 14, 4 mm tall.
+    const built = buildModel({
+      name: 'ring',
+      shapes: [{ shape: 'revolve', points: [[10, 0], [14, 0], [14, 4], [10, 4]] }]
+    })
+    const { bounds, stats } = assemble(built.parts)
+    expect(bounds.size[0]).toBeCloseTo(28, 1)
+    const exact = Math.PI * (14 * 14 - 10 * 10) * 4
+    expect(stats.volumeMm3).toBeGreaterThan(exact * 0.99)
+    expect(stats.volumeMm3).toBeLessThan(exact * 1.01)
+  })
+
+  it('sweeps only part of a turn when asked', () => {
+    const built = buildModel({
+      name: 'quarter',
+      shapes: [{ shape: 'revolve', angle: 90, points: [[10, 0], [14, 0], [14, 4], [10, 4]] }]
+    })
+    const { stats } = assemble(built.parts)
+    const exact = (Math.PI * (14 * 14 - 10 * 10) * 4) / 4
+    expect(stats.volumeMm3).toBeGreaterThan(exact * 0.98)
+    expect(stats.volumeMm3).toBeLessThan(exact * 1.02)
+  })
+
+  it('refuses a revolve profile that crosses its own axis', () => {
+    expect(() =>
+      buildModel({ name: 'bad', shapes: [{ shape: 'revolve', points: [[-5, 0], [5, 0], [5, 5]] }] })
+    ).toThrow(/axis/i)
+  })
+
+  it('refuses an outline with too few points', () => {
+    expect(() =>
+      buildModel({ name: 'bad', shapes: [{ shape: 'profile', height: 5, points: [[0, 0], [1, 1]] }] })
+    ).toThrow(/points/i)
+  })
+
+  it('refuses a pattern larger than it will evaluate', () => {
+    expect(() =>
+      buildModel({
+        name: 'bad',
+        shapes: [{ shape: 'box', size: [1, 1, 1], repeat: { count: 9999, step: [2, 0, 0] } }]
+      })
+    ).toThrow(/copies/i)
+  })
+
+  it('accepts the whole vocabulary through the tool, in snake_case', async () => {
+    const result = await executeTool('create_3d_model', {
+      name: 'Flange',
+      shapes: [
+        { shape: 'cylinder', radius: 50, height: 10 },
+        { shape: 'cylinder', radius: 3.25, height: 20, op: 'subtract', repeat: { count: 6, circle: 35 } },
+        { shape: 'rounded_cylinder', radius: 8, height: 12, round_radius: 2, at: [0, 0, 11] },
+        { shape: 'profile', height: 4, points: [[0, 0], [10, 0], [10, 4], [0, 4]], at: [60, 0, 0], mirror: 'x' }
+      ]
+    }, context)
+    expect(result.ok).toBe(true)
+    expect((result.data as { triangles: number }).triangles).toBeGreaterThan(0)
+  })
+
+  it('rejects a pattern the schema does not allow', async () => {
+    const result = await executeTool('create_3d_model', {
+      name: 'x',
+      shapes: [{ shape: 'box', size: [1, 1, 1], repeat: { count: 0 } }]
+    }, context)
+    expect(result.ok).toBe(false)
+    expect(result.error).toMatch(/not valid/i)
   })
 })
 

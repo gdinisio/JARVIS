@@ -120,7 +120,7 @@ src/
   preload/                 the only bridge; a fixed list of channels
   renderer/                interface — never sees a key, never touches the OS
   shared/                  types, defaults, IPC names and the provider catalogue
-tests/                     286 tests, security paths first
+tests/                     301 tests, security paths first
 ```
 
 ---
@@ -154,8 +154,9 @@ npm run typecheck
 tool layer against real files, confirms that traversal, shell injection and
 dangerous URL schemes are refused, checks that the confirmation gate appears and
 that approving it actually performs the action, builds a solid and reads a real
-STEP file into the 3D viewport, and writes a screenshot of every screen to
-`screenshots/`. 46 checks; any failure exits non-zero.
+STEP file into the 3D viewport, sections and measures it, and writes a
+screenshot of every screen to
+`screenshots/`. 57 checks; any failure exits non-zero.
 
 ### If startup fails with `ERR_MODULE_NOT_FOUND`
 
@@ -374,7 +375,7 @@ Settings → Permissions.
 JARVIS opens 3D files and builds solids, and shows you the result in an orbit
 viewport rather than describing it.
 
-<img src="docs/images/workshop.png" alt="A STEP file open in the Workshop with live measurements" width="100%">
+<img src="docs/images/workshop-cad.png" alt="A STEP file open in the Workshop with live measurements" width="100%">
 
 **Reading files.** `open_3d_model` handles meshes (STL binary and ASCII, OBJ,
 PLY, 3MF) and parametric CAD (STEP, IGES, BREP). CAD is tessellated by
@@ -382,11 +383,22 @@ OpenCascade compiled to WebAssembly — the same kernel FreeCAD is built on — 
 STEP file is read as real boundary-representation geometry rather than guessed
 at. Drag a file onto the window, use **Open file…**, or just ask.
 
-**Building solids.** `create_3d_model` takes a list of primitives — box,
-cylinder, sphere, cone, torus, rounded box, prism — each positioned, rotated,
-scaled, and combined with `add`, `subtract` or `intersect`. A CSG kernel
-evaluates it. Dimensions are exact: a 40 × 20 × 10 plate with a Ø4 hole comes
-out at 7,874.5 mm³ against an exact 7,874.3.
+**Building solids.** `create_3d_model` takes a list of shapes, each positioned,
+rotated, scaled, patterned, and combined with `add`, `subtract` or `intersect`.
+A CSG kernel evaluates it, and the dimensions are exact — a 40 × 20 × 10 plate
+with a Ø4 hole comes out at 7,874.5 mm³ against an exact 7,874.3.
+
+| | |
+|---|---|
+| Solids | `box` `rounded_box` `cylinder` `rounded_cylinder` `sphere` `cone` `torus` `prism` |
+| Your own outline | `profile` — any closed 2D outline, extruded. L-brackets, cam plates, gaskets. |
+| Turned parts | `revolve` — a lathe profile swept about the axis, fully or partly. Knobs, pulleys, vases. |
+| Patterns | `repeat` — `{count: 6, circle: 35}` is six holes on a 70 mm bolt circle; `{count: 5, step: [10,0,0]}` is a 10 mm pitch. `mirror` keeps a reflected copy. |
+
+So "a 100 mm flange with a 20 mm bore and six M6 clearance holes on a 70 mm bolt
+circle" is four shapes, and comes out dimensionally correct:
+
+<img src="docs/images/workshop.png" alt="A generated flange in the Workshop with live measurements" width="100%">
 
 This is the same rule as everywhere else in JARVIS, applied to geometry: **the
 model describes, it does not execute.** It emits a zod-validated tree of shapes
@@ -399,15 +411,32 @@ credit-metered, mostly non-commercial, and produce meshes rather than
 dimensioned CAD — so JARVIS does the thing that is actually exact instead of the
 thing that demos well.
 
-In the viewport: drag to orbit, right-drag or shift-drag to pan, scroll to zoom.
-Iso/Front/Right/Top presets, fit-to-view, wireframe overlay, bounding box, a
-ground grid scaled to the part, per-part visibility for assemblies, and live
-measurements — size on each axis, volume, surface area, triangle and vertex
-counts. **Export STL** writes the model out for slicing or printing.
+**In the viewport.** Drag to orbit, right-drag or shift-drag to pan, scroll to
+zoom, with an orientation triad in the corner. Iso/Front/Right/Top presets,
+fit-to-view, wireframe overlay, bounding box, a ground grid scaled to the part,
+per-part visibility for assemblies, and live measurements — size on each axis,
+volume, surface area, triangle and vertex counts.
 
-Geometry stays in the main process and crosses to the viewport as flat typed
-arrays, so a half-million-triangle part arrives in one copy rather than being
-rebuilt from JSON. three.js only loads when you first open the Workshop.
+**Section** cuts the part open along any axis, and the cut face is capped with a
+stencil pass so a sectioned solid still reads as solid rather than as a hollow
+shell. **Measure** reports the straight-line distance between two points you
+click on the model, with the per-axis deltas. **Save image** writes a PNG of the
+viewport; **Export STL** writes the model out for slicing or printing.
+
+| | | | |
+|---|---|---|---|
+| `1` `2` `3` `4` Views | `F` Fit | `W` Wireframe | `G` Grid |
+| `B` Bounds | `R` Spin | `S` Section | `M` Measure |
+
+<img src="docs/images/workshop-section.png" alt="The same flange sectioned, with the cut face capped" width="100%">
+
+**Under it.** Geometry stays in the main process and crosses to the viewport as
+flat typed arrays, so a large part arrives in one copy rather than being rebuilt
+from JSON. Meshes are sized and then filled rather than accumulated — the
+obvious version overflows the call stack at about seven thousand triangles,
+which is smaller than almost any real model. A 42 MB, 883k-triangle STL opens in
+roughly half a second. three.js only loads when you first open the Workshop, so
+it stays out of the start-up path.
 
 ---
 

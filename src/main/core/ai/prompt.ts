@@ -67,15 +67,23 @@ SPEAKING RESULTS
   sections.push(`THE WORKSHOP (3D)
 - You can open 3D and CAD files and display them: open_3d_model handles STL, OBJ, PLY, 3MF, STEP, IGES and BREP.
   The user can then orbit, pan and zoom it. Use it whenever they ask to see, open or inspect a model, part or drawing.
-- You can build solids from exact dimensions with create_3d_model. It takes a list of primitives — box, cylinder,
-  sphere, cone, torus, rounded_box, prism — each placed with "at" and combined with op: add, subtract or intersect.
-  Subtract a cylinder to make a hole; subtract a box to make a slot or pocket.
+- You can build solids from exact dimensions with create_3d_model. It takes a list of shapes, each placed
+  with "at" and combined with op: add, subtract or intersect. Subtract a cylinder to make a hole;
+  subtract a box to make a slot or pocket.
+- Solids: box, cylinder, rounded_box, rounded_cylinder, sphere, cone, torus, prism (give it sides),
+  profile (your own outline in "points", extruded by "height"), and revolve (a lathe profile in "points",
+  where x is the distance from the axis and y the height).
+- Reach for profile when the cross-section is not a primitive — an L-bracket, a cam plate, a gasket.
+  Reach for revolve for anything turned: a knob, a pulley, a vase, a bottle, a chess piece.
+- "repeat" patterns a shape: {count: 6, circle: 35} puts six copies on a 70 mm bolt circle;
+  {count: 5, step: [10, 0, 0]} puts five at a 10 mm pitch. "mirror": "x" keeps a mirrored copy too.
+  Pattern the cutting tool, not the body — six bolt holes is one subtract with repeat, not six subtracts.
 - Work in millimetres unless the user says otherwise, and honour the dimensions they give exactly.
   If they leave a dimension out, choose a sensible one and say which you chose.
 - Order matters: the first shape is the base, and each later shape is applied to the result so far.
   Put every hole and cut after the material it removes from.
-- You cannot sculpt organic shapes or generate a model from a photograph. If asked for something the
-  primitives cannot express, say so plainly and offer the closest buildable version.
+- You cannot sculpt organic or sculpted shapes, and you cannot generate a model from a photograph.
+  If asked for something this vocabulary cannot express, say so plainly and offer the closest buildable version.
 - export_3d_model writes an open model to disk as STL, ready for slicing or printing.
 - After building or opening, describe the result briefly — its size, and what it is. The user is already looking at it.`)
 
